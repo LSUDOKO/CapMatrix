@@ -1,0 +1,2926 @@
+"use client";
+
+import React, { useCallback, useEffect, useMemo, useState } from "react";
+import { useRouter } from "next/navigation";
+import {
+  ReactFlow,
+  Background,
+  BackgroundVariant,
+  useNodesState,
+  useEdgesState,
+  useReactFlow,
+  type Node,
+  type Edge,
+  type NodeTypes,
+  Handle,
+  Position,
+} from "@xyflow/react";
+import "@xyflow/react/dist/style.css";
+import {
+  Plus, LayoutDashboard, Workflow as WorkflowIcon, BarChart2,
+  DollarSign, BookUser, Sparkles, Shield, ChevronDown, X, Clock, Trash2,
+} from "lucide-react";
+import { usePrivy } from "@privy-io/react-auth";
+import { metamaskStore } from "@/lib/web3/metamaskStore";
+import type { MediaPolicy } from "@/lib/agent/agents";
+import ChatPanel from "@/components/ChatPanel";
+import DelegationChainPanel from "@/components/DelegationChainPanel";
+import PermissionReportPanel from "@/components/PermissionReportPanel";
+import PortfolioPanel from "@/components/PortfolioPanel";
+import { BaseLogo, MetaMaskLogo } from "@/components/BrandLogos";
+
+// ─────────────────────────────────────────────────────────────────────────────
+//  Design tokens — single source of truth (light "paper" theme)
+// ─────────────────────────────────────────────────────────────────────────────
+
+import {
+  INK, INK_1, INK_2, PAPER, SURFACE, ACCENT, ACCENT_TX, ACCENT_SOFT, ACCENT_GLOW,
+  AMBER, TEXT, TEXT2, MID, MID_2, LINE, LINE_MID,
+} from "@/lib/ui/tokens";
+
+// ─────────────────────────────────────────────────────────────────────────────
+//  Types
+// ─────────────────────────────────────────────────────────────────────────────
+
+interface Agent {
+  id:                    string;
+  name:                  string;
+  goal:                  string;
+  status:                "idle" | "planning" | "executing" | "reflecting";
+  budgetUsdc:            string;
+  budgetUsedUsdc?:       string;
+  lastAction:            "hold" | "deposit" | "rebalance" | "withdraw" | "skip" | null;
+  totalRuns:             number;
+  position?:             { x: number; y: number };
+  parentAgentId?:        string | null;
+  workflowId?:           string | null;
+  delegationStatus?:     "active" | "revoked" | "pending" | "none";
+  delegationCap?:        string;
+  delegationContext?:    string | null;
+  delegationHash?:       string | null;
+  delegationManagerAddress?: string | null;
+  scheduleIntervalMs?:   number;
+  lastRunAt?:            string | null;
+  x402SpentUsdc?:        number;
+  thoughts?:             Array<{ step: string; content: string; ts?: string; txHash?: string; cost?: number }>;
+}
+
+/** Human-readable schedule label from ms */
+function scheduleLabel(ms?: number): string | null {
+  if (!ms) return null;
+  const h = ms / (60 * 60 * 1000);
+  if (h < 1)  return "manual";
+  if (h <= 1) return "hourly";
+  if (h <= 6) return "6h";
+  if (h <= 24) return "daily";
+  if (h <= 168) return "weekly";
+  return `${Math.round(h)}h`;
+}
+
+
+interface Question {
+  id: string;
+  label: string;
+  hint?: string;
+  type: "single" | "multi" | "slider" | "text";
+  options?: string[];
+  min?: number; max?: number; step?: number; defaultVal?: number; unit?: string;
+}
+
+interface Questionnaire {
+  summary: string;
+  questions: Question[];
+  originalPrompt: string;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+//  Helpers
+// ─────────────────────────────────────────────────────────────────────────────
+
+function detectProtocols(goal: string): string[] {
+  const lower = goal.toLowerCase();
+  const tags: string[] = [];
+  if (lower.includes("morpho"))    tags.push("Morpho");
+  if (lower.includes("aave"))      tags.push("Aave");
+  if (lower.includes("uniswap"))   tags.push("Uniswap");
+  if (lower.includes("aerodrome")) tags.push("Aerodrome");
+  if (lower.includes("lido"))      tags.push("Lido");
+  if (lower.includes("sky") || lower.includes("dai") || lower.includes("susds")) tags.push("Sky");
+  if (lower.includes("compound"))  tags.push("Compound");
+  if (lower.includes("usdc") || lower.includes("base")) tags.push("Base");
+  return tags.slice(0, 3);
+}
+
+const PROTOCOL_DOT_COLORS: Record<string, string> = {
+  Morpho:    "#3B5BFF",
+  Aave:      "#B6509E",
+  Uniswap:   "#FF007A",
+  Aerodrome: "#0F62FE",
+  Lido:      "#00A3FF",
+  Sky:       "#4A90D9",
+  Compound:  "#00D395",
+  Base:      "#0052FF",
+};
+
+function lastActionColor(la: Agent["lastAction"]): string {
+  if (!la || la === "skip") return MID;
+  if (la === "hold") return MID_2;
+  return ACCENT;
+}
+
+function hasRealDelegation(a: Agent): boolean {
+  return (
+    a.delegationStatus === "active" &&
+    !!a.delegationContext &&
+    a.delegationContext !== "0xdemo" &&
+    a.delegationContext.length > 20 &&
+    !a.delegationHash?.includes("demo")
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+//  Fix 1: FitViewOnLoad
+// ─────────────────────────────────────────────────────────────────────────────
+
+function FitViewOnLoad({ nodeCount }: { nodeCount: number }) {
+  const { fitView } = useReactFlow();
+  useEffect(() => {
+    if (nodeCount > 0) {
+      setTimeout(() => fitView({ padding: 0.4, duration: 400 }), 80);
+    }
+  }, [nodeCount, fitView]);
+  return null;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+//  AgentNode
+// ─────────────────────────────────────────────────────────────────────────────
+
+function AgentNode({
+  data,
+  selected,
+}: {
+  data: Agent & { onSelect: () => void; onOpen: () => void; onDelegate: () => void; onDelete: () => void; onSchedule: () => void };
+  selected?: boolean;
+}) {
+  const status  = data.status;
+  const isLive  = status === "planning" || status === "executing" || status === "reflecting";
+  const border  = selected ? ACCENT : isLive ? "rgba(164,110,219,0.4)" : LINE_MID;
+  const shadow  = selected
+    ? `0 0 0 1px ${ACCENT}, 0 12px 28px -16px ${ACCENT_GLOW}`
+    : isLive
+    ? `0 0 0 1px rgba(164,110,219,0.25), 0 8px 18px -10px ${ACCENT_GLOW}`
+    : "none";
+
+  const protocols = detectProtocols(data.goal);
+  const isReal    = hasRealDelegation(data);
+  // The Fund Manager holds the user's MetaMask ERC-7715 grant — badge it as such.
+  const isFundManager = /fund manager/i.test(data.name);
+  // Editorial accent-bar / status motif: lime when active, amber when thinking,
+  // faint ink when idle. The single signature element of every node.
+  const isThinking = status === "planning" || status === "reflecting";
+  const barColor   = status === "idle" ? "rgba(27,29,24,0.22)" : isThinking ? AMBER : isLive ? ACCENT : "rgba(27,29,24,0.22)";
+
+  return (
+    <div
+      onClick={() => data.onSelect()}
+      onDoubleClick={() => data.onOpen()}
+      style={{
+        width: 252,
+        background: INK_1,
+        border: `1px solid ${border}`,
+        borderRadius: 12,
+        padding: "14px 16px",
+        color: TEXT,
+        boxShadow: shadow,
+        cursor: "pointer",
+        transition: "border-color .15s, box-shadow .15s",
+        fontFamily: "var(--sans)",
+      }}
+    >
+      <Handle type="target" position={Position.Left}  style={{ width: 6, height: 6, background: border, left: -3 }} />
+
+      {/* Editorial accent bar — the signature motif, colored by type/status */}
+      <div style={{ width: 40, height: 2, borderRadius: 2, background: barColor, marginBottom: 12 }} />
+
+      {/* Header row */}
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 10 }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+          <span style={{ display: "inline-flex", width: 22, height: 22, alignItems: "center", justifyContent: "center", borderRadius: 5, background: isFundManager ? "rgba(246,133,27,0.12)" : "rgba(164,110,219,0.10)", border: `1px solid ${isFundManager ? "rgba(246,133,27,0.3)" : "rgba(164,110,219,0.2)"}` }}>
+            {isFundManager ? <MetaMaskLogo size={14} /> : (
+              <svg width="12" height="12" viewBox="0 0 24 24">
+                <circle cx="8"  cy="8"  r="3.5" fill={ACCENT} />
+                <circle cx="16" cy="8"  r="3.5" fill={ACCENT} opacity="0.85" />
+                <circle cx="8"  cy="16" r="3.5" fill={ACCENT} opacity="0.85" />
+                <circle cx="16" cy="16" r="3.5" fill={ACCENT} opacity="0.7" />
+              </svg>
+            )}
+          </span>
+          <span style={{ fontSize: 9.5, color: MID, letterSpacing: "0.04em", textTransform: "uppercase" }}>
+            {isFundManager ? "Holds MetaMask grant" : "AI Agent"}
+          </span>
+        </div>
+        <div style={{ display: "flex", alignItems: "center", gap: 5, fontSize: 9.5, color: isThinking ? "#a06a00" : isLive ? ACCENT_TX : MID, letterSpacing: "0.06em", textTransform: "lowercase" }}>
+          <span
+            className={isThinking ? "clv-pulse-fast" : isLive ? "clv-pulse" : ""}
+            style={{
+              width: 7, height: 7, borderRadius: "50%",
+              background: status === "idle" ? "#bcbcae" : isThinking ? AMBER : isLive ? ACCENT : MID,
+              border: (isLive || isThinking) ? "1px solid #1b1d18" : "none",
+              ["--pc" as string]: isThinking ? "rgba(217,144,0,0.5)" : ACCENT_SOFT,
+            } as React.CSSProperties}
+          />
+          {status}
+        </div>
+      </div>
+
+      {/* Agent name */}
+      <div style={{ fontSize: 16, fontWeight: 600, color: TEXT, letterSpacing: "-0.015em", lineHeight: 1.2 }}>
+        {data.name}
+      </div>
+
+      {/* Goal excerpt */}
+      <div style={{ fontSize: 11.5, color: TEXT2, marginTop: 6, lineHeight: 1.4, fontStyle: "italic", fontFamily: "var(--serif)" }}>
+        &ldquo;{data.goal.slice(0, 72)}{data.goal.length > 72 ? "…" : ""}&rdquo;
+      </div>
+
+      {/* Protocol badges */}
+      {protocols.length > 0 && (
+        <div style={{ display: "flex", gap: 5, marginTop: 8, flexWrap: "wrap" }}>
+          {protocols.map(p => (
+            <span key={p} style={{
+              display: "inline-flex", alignItems: "center", gap: 4,
+              padding: "2px 7px", borderRadius: 4,
+              background: "rgba(20,21,16,0.05)",
+              border: `1px solid ${PROTOCOL_DOT_COLORS[p] ?? MID}33`,
+              fontSize: 9.5, color: TEXT2, letterSpacing: "0.04em", textTransform: "lowercase",
+            }}>
+              <span style={{ width: 4, height: 4, borderRadius: "50%", background: PROTOCOL_DOT_COLORS[p] ?? MID }} />
+              {p.toLowerCase()}
+            </span>
+          ))}
+          <span style={{
+            display: "inline-flex", alignItems: "center", gap: 4,
+            padding: "2px 7px", borderRadius: 4,
+            background: "rgba(164,110,219,0.06)",
+            border: "1px solid rgba(164,110,219,0.18)",
+            fontSize: 9.5, color: ACCENT_TX, letterSpacing: "0.04em", textTransform: "lowercase",
+          }}>
+            venice ai
+          </span>
+        </div>
+      )}
+
+      {/* Stats row */}
+      <div style={{ display: "flex", justifyContent: "space-between", marginTop: 10, paddingTop: 9, borderTop: `1px solid ${LINE}`, fontSize: 9.5, color: MID, letterSpacing: "0.04em", textTransform: "lowercase", fontVariantNumeric: "tabular-nums" }}>
+        <span>{data.totalRuns} run{data.totalRuns !== 1 ? "s" : ""}</span>
+        <span>{data.budgetUsdc} USDC</span>
+        <span style={{ color: lastActionColor(data.lastAction) }}>{data.lastAction ?? "—"}</span>
+      </div>
+
+      {/* UX-3: Budget consumption bar */}
+      {data.budgetUsedUsdc !== undefined && parseFloat(data.budgetUsdc) > 0 && (() => {
+        const pct = Math.min(100, (parseFloat(String(data.budgetUsedUsdc ?? 0)) / parseFloat(data.budgetUsdc)) * 100);
+        const barColor = pct > 90 ? "#FF8A66" : pct > 70 ? "#FFD166" : ACCENT;
+        return (
+          <div style={{ marginTop: 6, display: "flex", flexDirection: "column", gap: 2 }}>
+            <div style={{ height: 2, background: LINE_MID, borderRadius: 1, overflow: "hidden" }}>
+              <div style={{ height: "100%", width: `${pct}%`, background: barColor, borderRadius: 1, transition: "width .4s" }} />
+            </div>
+            <div style={{ fontSize: 8.5, color: MID, fontVariantNumeric: "tabular-nums" }}>
+              {parseFloat(String(data.budgetUsedUsdc ?? 0)).toFixed(3)} / {data.budgetUsdc} USDC used ({pct.toFixed(0)}%)
+            </div>
+          </div>
+        );
+      })()}
+
+      {/* Schedule chip — clickable, opens schedule picker */}
+      <div
+        onClick={(e) => { e.stopPropagation(); data.onSchedule(); }}
+        style={{
+          marginTop: 5, display: "flex", alignItems: "center", gap: 5,
+          fontSize: 9.5, letterSpacing: "0.04em", cursor: "pointer",
+          color: scheduleLabel(data.scheduleIntervalMs) ? ACCENT_TX : MID,
+        }}
+        title="Set agent schedule"
+      >
+        {scheduleLabel(data.scheduleIntervalMs) ? (
+          <>
+            <span style={{ width: 4, height: 4, borderRadius: "50%", background: ACCENT, boxShadow: `0 0 0 2px ${ACCENT_SOFT}` }} />
+            autonomous · {scheduleLabel(data.scheduleIntervalMs)} · edit
+          </>
+        ) : (
+          <>
+            <Clock size={9} /> set schedule →
+          </>
+        )}
+      </div>
+
+      {/* UX-2 + UX-8: Delegation badge with pending/demo distinction + action CTA */}
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: 5, fontSize: 9.5, color: MID, letterSpacing: "0.04em", textTransform: "lowercase" }}>
+        <span>
+          {data.delegationStatus === "active" && isReal && (
+            <span style={{ color: ACCENT_TX }}>● real on-chain{data.delegationCap ? ` · ${data.delegationCap}` : ""}</span>
+          )}
+          {data.delegationStatus === "active" && !isReal && (
+            <button
+              onClick={(e) => { e.stopPropagation(); data.onDelegate(); }}
+              style={{ background: "transparent", border: "none", cursor: "pointer", color: TEXT2, fontSize: 9.5, padding: 0, letterSpacing: "0.04em" }}
+              title="No real permission — click to grant ERC-7715 permission"
+            >
+              ● needs permission · grant to run →
+            </button>
+          )}
+          {data.delegationStatus === "pending" && (
+            <button
+              onClick={(e) => { e.stopPropagation(); data.onDelegate(); }}
+              style={{ background: "transparent", border: "none", cursor: "pointer", color: "#FFD166", fontSize: 9.5, padding: 0, letterSpacing: "0.04em" }}
+              title="Sub-delegation pending — click to re-grant permission"
+            >
+              ● pending · re-grant →
+            </button>
+          )}
+          {data.delegationStatus === "revoked" && <span style={{ color: MID }}>● revoked</span>}
+          {(!data.delegationStatus || data.delegationStatus === "none") && (
+            <button
+              onClick={(e) => { e.stopPropagation(); data.onDelegate(); }}
+              style={{ background: "transparent", border: "none", cursor: "pointer", color: MID, fontSize: 9.5, padding: 0, letterSpacing: "0.04em" }}
+            >
+              no permission · grant →
+            </button>
+          )}
+        </span>
+        <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+          <button
+            onClick={(e) => { e.stopPropagation(); data.onDelegate(); }}
+            style={{ background: "transparent", border: "none", cursor: "pointer", color: TEXT2, fontSize: 9.5, letterSpacing: "0.04em", textTransform: "lowercase", padding: 0 }}
+          >
+            delegate →
+          </button>
+          <button
+            onClick={(e) => { e.stopPropagation(); data.onOpen(); }}
+            style={{ background: "transparent", border: "none", cursor: "pointer", color: ACCENT_TX, fontSize: 9.5, letterSpacing: "0.04em", textTransform: "lowercase", padding: 0 }}
+          >
+            open →
+          </button>
+          <button
+            onClick={(e) => { e.stopPropagation(); data.onDelete(); }}
+            title="Delete agent"
+            style={{
+              background: "transparent", border: "none", cursor: "pointer",
+              color: "rgba(255,69,69,0.5)", fontSize: 11, padding: 0,
+              lineHeight: 1, transition: "color .15s",
+            }}
+            onMouseEnter={(e) => { e.currentTarget.style.color = "#FF4545"; }}
+            onMouseLeave={(e) => { e.currentTarget.style.color = "rgba(255,69,69,0.5)"; }}
+          >
+            ✕
+          </button>
+        </div>
+      </div>
+
+      <Handle type="source" position={Position.Right} style={{ width: 6, height: 6, background: border, right: -3 }} />
+    </div>
+  );
+}
+
+// NODE_TYPES must be defined outside component for performance
+const NODE_TYPES: NodeTypes = { agent: AgentNode };
+
+
+// ─────────────────────────────────────────────────────────────────────────────
+//  Dashboard page
+// ─────────────────────────────────────────────────────────────────────────────
+
+export default function DashboardPage() {
+  const router = useRouter();
+
+  const [agents,       setAgents]       = useState<Agent[]>([]);
+  // Which workflow the Hub canvas is currently showing. null = newest workflow.
+  // "__solo__" = the solo (no-workflow) agents. Keeps each workflow on its own
+  // canvas instead of piling every agent ever created onto one screen.
+  const [activeWorkflowId, setActiveWorkflowId] = useState<string | null>(null);
+  const [nodes,        setNodes,        onNodesChange] = useNodesState<Node>([]);
+  const [edges,        setEdges,        onEdgesChange] = useEdgesState<Edge>([]);
+  const [creating,     setCreating]     = useState(false);
+  const [delegateFrom, setDelegateFrom] = useState<Agent | null>(null);
+  const [mmTick,       setMmTick]       = useState(0);
+
+  // Fix 3C: selected agent for right drawer
+  const [selectedAgentId,    setSelectedAgentId]    = useState<string | null>(null);
+  const [selectedAgentData,  setSelectedAgentData]  = useState<Agent | null>(null);
+  const [drawerOpen,         setDrawerOpen]         = useState(false);
+
+  // One-click team run (orchestrate the whole workflow from the canvas)
+  const [teamRunning,   setTeamRunning]   = useState(false);
+
+
+  // Questionnaire state
+  const [questionnaire,    setQuestionnaire]    = useState<Questionnaire | null>(null);
+  const [answers,          setAnswers]          = useState<Record<string, unknown>>({});
+  const [qSubmitting,      setQSubmitting]      = useState(false);
+
+  const [permGrantOpen,          setPermGrantOpen]          = useState(false);
+  // UX-5: after agent creation, if no real permission exists → auto-open Step 3
+  const [postCreatePermOpen,     setPostCreatePermOpen]     = useState(false);
+  const [postCreateAgentCount,   setPostCreateAgentCount]   = useState(0);
+
+  // Schedule modal — opened from agent card clock chip
+  const [scheduleAgent,    setScheduleAgent]    = useState<Agent | null>(null);
+
+  // "New workflow" opens a fresh full-screen chat (blank canvas + empty chat)
+  // instead of the old prompt panel. newChatNonce bumps ChatPanel into a new thread.
+  const [newChatMode, setNewChatMode] = useState(false);
+  const [newChatNonce, setNewChatNonce] = useState(0);
+  const startNewChat = useCallback(() => { setNewChatNonce(n => n + 1); setNewChatMode(true); }, []);
+  const [deletingWf, setDeletingWf] = useState(false);
+
+  // UX-1: In-UI toast system — replaces all alert()/confirm() calls
+  const [toasts, setToasts] = useState<Array<{ id: string; msg: string; type: "success"|"error"|"info" }>>([]);
+  const toast = useCallback((msg: string, type: "success"|"error"|"info" = "info") => {
+    const id = Math.random().toString(36).slice(2);
+    setToasts(t => [...t, { id, msg, type }]);
+    setTimeout(() => setToasts(t => t.filter(x => x.id !== id)), 4000);
+  }, []);
+
+  // UX-1: Confirm dialog state (replaces browser confirm())
+  const [confirmState, setConfirmState] = useState<{ msg: string; onOk: () => void } | null>(null);
+
+  // Subscribe to metamask store changes
+  useEffect(() => {
+    const unsub = metamaskStore.addListener(() => setMmTick(x => x + 1));
+    return () => unsub();
+  }, []);
+
+const loadAgents = useCallback(async () => {
+    const wallet = metamaskStore.getState().userAddress;
+    if (!wallet) {
+      setAgents([]);
+      setNodes([]);
+      return;
+    }
+    try {
+      const res = await fetch(`/api/agent?wallet=${encodeURIComponent(wallet)}`);
+      if (!res.ok) return;
+      const data = (await res.json()) as { agents: Agent[] };
+      setAgents(data.agents);
+    } catch { /* ignore */ }
+  }, [setNodes]);
+
+  // Reload agents whenever wallet connects/disconnects
+  useEffect(() => { loadAgents(); }, [loadAgents, mmTick]);
+
+  // Load selected agent's detail (thoughts) — map DB AgentThought[] → display format
+  useEffect(() => {
+    if (!selectedAgentId) { setSelectedAgentData(null); return; }
+    const found = agents.find(a => a.id === selectedAgentId);
+    if (found) setSelectedAgentData(found);
+    fetch(`/api/agent/${selectedAgentId}`)
+      .then(r => r.ok ? r.json() : null)
+      .then(d => {
+        if (!d?.agent) return;
+        const rawThoughts = (d.thoughts ?? []) as Array<{
+          type: string; content: Record<string, unknown>; createdAt?: string;
+        }>;
+        // UX-4 fix: extract txHash + cost from raw content so drawer can show
+        // Basescan links and per-run x402 cost without a separate API call.
+        const thoughts = rawThoughts.slice(-8).reverse().map(t => ({
+          step:    t.type,
+          content: typeof t.content?.text === "string"    ? t.content.text
+                 : typeof t.content?.insight === "string" ? t.content.insight
+                 : typeof t.content?.tool === "string"    ? `${t.content.tool}()`
+                 : typeof t.content?.description === "string" ? t.content.description
+                 : JSON.stringify(t.content).slice(0, 180),
+          ts:      t.createdAt,
+          txHash:  typeof t.content?.txHash === "string" ? t.content.txHash : undefined,
+          cost:    typeof t.content?.cost   === "number" ? t.content.cost   : undefined,
+        }));
+        setSelectedAgentData({ ...(d.agent as Agent), thoughts });
+      })
+      .catch(() => {});
+  }, [selectedAgentId, agents]);
+
+  // ── Workflow grouping so each workflow is its own canvas ───────────────────
+  // Distinct workflows (newest first), plus a "Solo agents" bucket. Used both to
+  // filter the canvas and to populate the workflow switcher.
+  const workflowList = useMemo(() => {
+    const groups: { id: string; label: string; count: number }[] = [];
+    const idx = new Map<string, number>();
+    for (const a of agents) {
+      const wf = a.workflowId ?? "__solo__";
+      if (!idx.has(wf)) { idx.set(wf, groups.length); groups.push({ id: wf, label: "", count: 0 }); }
+      groups[idx.get(wf)!].count++;
+    }
+    for (const g of groups) {
+      if (g.id === "__solo__") { g.label = "Solo agents"; continue; }
+      const members = agents.filter(a => (a.workflowId ?? "__solo__") === g.id);
+      const lead = members.find(m => /executor|analyzer|detector|copy trade/i.test(m.name))
+        ?? members[members.length - 1] ?? members[0];
+      g.label = lead ? lead.name.replace(/\s+(Executor|Scout|Agent)$/i, "").trim() || lead.name : "Workflow";
+    }
+    return groups;
+  }, [agents]);
+
+  // The workflow actually shown: explicit selection if still present, else newest.
+  const effectiveWorkflowId = useMemo(() => {
+    if (activeWorkflowId && workflowList.some(w => w.id === activeWorkflowId)) return activeWorkflowId;
+    return workflowList[0]?.id ?? null;
+  }, [activeWorkflowId, workflowList]);
+
+  // One-click delete of the whole active workflow (cascades to its agents).
+  const deleteActiveWorkflow = useCallback(() => {
+    const wfId = effectiveWorkflowId;
+    if (!wfId || wfId === "__solo__") { toast("Select a workflow to delete.", "info"); return; }
+    const wfName = workflowList.find(w => w.id === wfId)?.label ?? "this workflow";
+    setConfirmState({
+      msg: `Delete "${wfName}" and ALL its agents? This can't be undone.`,
+      onOk: async () => {
+        setConfirmState(null);
+        setDeletingWf(true);
+        try {
+          const res = await fetch(`/api/workflow/${wfId}`, { method: "DELETE" });
+          if (!res.ok) throw new Error(`HTTP ${res.status}`);
+          setActiveWorkflowId(null);
+          await loadAgents();
+          toast("Workflow deleted ✓", "success");
+        } catch (e) {
+          toast("Delete failed: " + (e instanceof Error ? e.message : String(e)), "error");
+        } finally { setDeletingWf(false); }
+      },
+    });
+  }, [effectiveWorkflowId, workflowList, loadAgents, toast]);
+
+  // Only the active workflow's agents are on the canvas (no more pile-up).
+  const visibleAgents = useMemo(() => {
+    if (!effectiveWorkflowId) return agents;
+    return agents.filter(a => (a.workflowId ?? "__solo__") === effectiveWorkflowId);
+  }, [agents, effectiveWorkflowId]);
+
+  // Build canvas nodes from the active workflow's agents
+  useEffect(() => {
+    setNodes(visibleAgents.map((a, i) => ({
+      id:       a.id,
+      type:     "agent",
+      position: a.position ?? { x: 80 + (i % 3) * 320, y: 80 + Math.floor(i / 3) * 220 },
+      data: {
+        ...a,
+        onSelect:   () => { setSelectedAgentId(a.id); setDrawerOpen(true); },
+        onOpen:     () => router.push(`/dashboard/agent/${a.id}`),
+        onDelegate: () => openDelegate(a),
+        onDelete:   () => deleteAgent(a.id, a.name),
+        onSchedule: () => setScheduleAgent(a),
+      },
+    })));
+
+    // Build delegation edges (scoped to the visible workflow)
+    const newEdges: Edge[] = [];
+    for (const a of visibleAgents) {
+      if (a.parentAgentId) {
+        const isActive = a.delegationStatus === "active";
+        newEdges.push({
+          id:     `del_${a.parentAgentId}_${a.id}`,
+          source: a.parentAgentId,
+          target: a.id,
+          type:   "smoothstep",
+          animated: isActive,
+          label: a.delegationCap ? `${a.delegationCap} USDC` : undefined,
+          labelStyle: { fill: TEXT2, fontSize: 10, letterSpacing: "0.04em" },
+          labelBgStyle: { fill: INK_1, fillOpacity: 0.9 },
+          labelBgPadding: [6, 4] as [number, number],
+          labelBgBorderRadius: 4,
+          // `active` class → the globals clvDash animation marches the dashes.
+          className: isActive ? "active" : undefined,
+          style: isActive
+            ? { stroke: "#5a7a00", strokeWidth: 1.8, strokeDasharray: "3 7" }
+            : { stroke: "rgba(27,29,24,0.38)", strokeWidth: 1.4, strokeDasharray: "3 6" },
+        });
+      }
+    }
+    setEdges(newEdges);
+  }, [visibleAgents, router, setNodes, setEdges]);
+
+  // Fix 2: open delegate modal — bind user permission first if needed
+  const openDelegate = useCallback(async (parent: Agent) => {
+    const mmState = metamaskStore.getState();
+    const perm    = mmState.permission;
+
+    // If parent has no real delegation, try binding the user's MetaMask permission first
+    if (!hasRealDelegation(parent) && perm && perm.permissionsContext) {
+      try {
+        await fetch(`/api/agent/${parent.id}/delegate-from-user`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            permissionsContext:        perm.permissionsContext,
+            delegationManagerAddress:  perm.delegationManager,
+            delegationHash:            "0xpending",
+            capUsdc:                   parent.budgetUsdc,
+          }),
+        });
+        await loadAgents();
+        // Re-fetch the parent with updated delegation
+        const updatedRes  = await fetch(`/api/agent/${parent.id}`);
+        const updatedJson = updatedRes.ok ? await updatedRes.json() : null;
+        const updatedParent: Agent = updatedJson?.agent ?? parent;
+        setDelegateFrom(updatedParent);
+      } catch {
+        setDelegateFrom(parent);
+      }
+    } else {
+      setDelegateFrom(parent);
+    }
+  }, [loadAgents]);
+
+  // Delete an agent — with in-UI confirm dialog (UX-1)
+  const deleteAgent = useCallback(async (id: string, name: string) => {
+    setConfirmState({
+      msg: `Delete "${name}"? This removes the agent and all its thoughts.`,
+      onOk: async () => {
+        setConfirmState(null);
+        try {
+          const wallet = metamaskStore.getState().userAddress ?? "";
+          await fetch(`/api/agent/${id}?wallet=${encodeURIComponent(wallet)}`, { method: "DELETE" });
+          if (selectedAgentId === id) { setSelectedAgentId(null); setDrawerOpen(false); }
+          await loadAgents();
+          toast(`Deleted "${name}"`, "success");
+        } catch (e) {
+          toast("Delete failed: " + (e instanceof Error ? e.message : String(e)), "error");
+        }
+      },
+    });
+  }, [loadAgents, selectedAgentId, toast]);
+
+  /**
+   * After granting ERC-7715 permission, auto-bind it to every agent that has
+   * delegationStatus "pending" or "none" — so users never need to manually
+   * delegate to each agent one by one.
+   *
+   * This is the missing link between "Grant permission" and "agents go live":
+   * previously onGranted just called loadAgents() leaving all agents as "pending".
+   */
+  const bindPermissionToPendingAgents = useCallback(async () => {
+    const perm = metamaskStore.getState().permission;
+    if (!perm?.permissionsContext) return;
+    const wallet = metamaskStore.getState().userAddress;
+
+    // FUND MANAGER grant → allocate REAL scoped, on-chain-capped chains per worker
+    // (true A2A). Do NOT flat-bind the root to every agent — that erases caps.
+    try {
+      const r = await fetch("/api/session/address?role=fund-manager");
+      const fmAddr = ((await r.json()).address as string ?? "").toLowerCase();
+      if (wallet && (perm.grantedTo as string | undefined)?.toLowerCase() === fmAddr) {
+        const alloc = await fetch("/api/agent/allocate-fund-manager", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            walletAddress:      wallet,
+            permissionsContext: perm.permissionsContext,
+            delegationManager:  perm.delegationManager,
+          }),
+        });
+        const ad = await alloc.json() as { allocated?: number };
+        await loadAgents();
+        if ((ad.allocated ?? 0) > 0) toast(`${ad.allocated} worker${ad.allocated! > 1 ? "s" : ""} on-chain-capped ✓`, "success");
+        return;
+      }
+    } catch { /* fall through to flat binding */ }
+
+    // Legacy relayer grant → flat-bind the root context to each pending agent.
+    let latestAgents = agents;
+    if (wallet) {
+      try {
+        const r = await fetch(`/api/agent?wallet=${encodeURIComponent(wallet)}`);
+        if (r.ok) {
+          const d = await r.json() as { agents: typeof agents };
+          latestAgents = d.agents;
+        }
+      } catch { /* use existing agents list */ }
+    }
+
+    const pendingAgents = latestAgents.filter(
+      a => a.delegationStatus === "pending" || a.delegationStatus === "none" || !a.delegationStatus
+    );
+    if (pendingAgents.length === 0) return;
+
+    let bound = 0;
+    for (const a of pendingAgents) {
+      try {
+        const res = await fetch(`/api/agent/${a.id}/delegate-from-user`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            permissionsContext:        perm.permissionsContext,
+            delegationManagerAddress:  perm.delegationManager ?? "0x",
+            delegationHash:            "0xpending",
+            capUsdc:                   a.budgetUsdc,
+          }),
+        });
+        if (res.ok) bound++;
+      } catch { /* non-fatal per agent */ }
+    }
+    if (bound > 0) {
+      await loadAgents();
+      toast(`${bound} agent${bound > 1 ? "s are" : " is"} now live with real permission ✓`, "success");
+    }
+  }, [agents, loadAgents, toast]);
+
+  // One-click "Run Team": jump to the workflow's live A2A view and auto-start
+  // the orchestrated run (Scouts → Analyzer → Risk → Executor). The workflow
+  // page renders the real-time timeline, agent thoughts, decision, and the
+  // on-chain tx / Basescan link as events stream in.
+  const runTeam = useCallback(() => {
+    // Run the workflow currently shown on the canvas.
+    const target = effectiveWorkflowId && effectiveWorkflowId !== "__solo__"
+      ? effectiveWorkflowId
+      : null;
+    if (!target) { toast("Select a workflow to run (solo agents run individually).", "info"); return; }
+    setTeamRunning(true);
+    router.push(`/dashboard/workflow/${target}?run=1`);
+  }, [effectiveWorkflowId, router, toast]);
+
+  // Shared creation path — used by both the direct (no-questions) flow and the
+  // questionnaire submit. Posts answers to from-answers and handles post-create UX.
+  const createFromAnswers = useCallback(async (prompt: string, answersObj: Record<string, unknown>) => {
+    const wallet = metamaskStore.getState().userAddress;
+    if (!wallet || !prompt.trim()) return;
+    setQSubmitting(true);
+    try {
+      const mm = metamaskStore.getState();
+      const res = await fetch("/api/agent/from-answers", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          prompt:             prompt.trim(),
+          walletAddress:      wallet,
+          answers:            answersObj,
+          permissionsContext: mm.permission?.permissionsContext,
+          delegationManager:  mm.permission?.delegationManager,
+        }),
+      });
+      if (!res.ok) throw new Error("from-answers failed");
+      const data = await res.json() as { agents: unknown[]; wired: boolean; chain?: string; workflow?: { id?: string } };
+      setQuestionnaire(null);
+      setAnswers({});
+      setNewChatMode(false);   // built from a new-workflow chat → reveal the canvas
+      // Switch the Hub canvas to the freshly created workflow so it shows ONLY
+      // the new team — previous workflows move out of view (still in History).
+      if (data.workflow?.id) setActiveWorkflowId(data.workflow.id);
+      await loadAgents();
+
+      const agentCount = (data.agents as unknown[]).length;
+      const freshPerm = metamaskStore.getState().permission;
+      const hasFreshRealPerm = !!(
+        freshPerm?.permissionsContext &&
+        freshPerm.permissionsContext.length > 40 &&
+        !freshPerm.permissionsContext.includes("demo") &&
+        freshPerm.permissionsContext.startsWith("0x")
+      );
+
+      // MULTI-AGENT TEAM → TRUE A2A: the Fund Manager holds the grant and
+      // redelegates a scoped, on-chain-capped slice to each worker. We must NOT
+      // flat-bind the root permission to every agent (that erases the per-worker
+      // caps), so teams take the Fund Manager path regardless of an existing perm.
+      if (data.wired) {
+        const budget = String((answersObj.budget as number | string | undefined) ?? 10);
+        try {
+          let fmAddr = "";
+          try {
+            const r = await fetch("/api/session/address?role=fund-manager");
+            fmAddr = ((await r.json()).address as string ?? "").toLowerCase();
+          } catch { /* ignore */ }
+          const haveFmGrant = hasFreshRealPerm &&
+            (freshPerm!.grantedTo as string | undefined)?.toLowerCase() === fmAddr;
+
+          if (haveFmGrant) {
+            // Already granted to the Fund Manager — just (re)allocate scoped caps.
+            const alloc = await fetch("/api/agent/allocate-fund-manager", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                walletAddress:      wallet,
+                permissionsContext: freshPerm!.permissionsContext,
+                delegationManager:  freshPerm!.delegationManager,
+              }),
+            });
+            const ad = await alloc.json() as { allocated?: number };
+            await loadAgents();
+            toast(`Team live · ${ad.allocated ?? 0} workers on-chain-capped ✓`, "success");
+          } else {
+            // Grant to the Fund Manager + allocate per-worker capped budgets.
+            const n = await metamaskStore.requestFundManagerGrant(budget, 90);
+            await loadAgents();
+            if (n && n > 0) toast(`Team live · Fund Manager capped ${n} workers on-chain ✓`, "success");
+            else            toast("Grant the Fund Manager permission to activate the team.", "info");
+          }
+        } catch (e) {
+          toast("Team created — allocation failed: " + (e instanceof Error ? e.message : String(e)), "error");
+        }
+      } else if (!hasFreshRealPerm) {
+        setPostCreateAgentCount(agentCount);
+        setPostCreatePermOpen(true);   // single agent → Step 3 relayer grant
+      } else {
+        await bindPermissionToPendingAgents();
+        toast("Agent created and activated ✓", "success");
+      }
+    } catch (e) {
+      toast("Failed to create agent: " + (e instanceof Error ? e.message : String(e)), "error");
+    } finally {
+      setQSubmitting(false);
+    }
+  }, [loadAgents, bindPermissionToPendingAgents, toast]);
+
+  // Floating bar: ask Venice for ONLY the still-missing questions. If the prompt
+  // is fully specified (no questions), create immediately; else open the modal
+  // pre-filled with whatever was already extracted.
+
+  // Submit questionnaire answers → reuse the shared creation path.
+  const submitQuestionnaire = useCallback(async () => {
+    if (!questionnaire) return;
+    await createFromAnswers(questionnaire.originalPrompt, answers);
+  }, [questionnaire, answers, createFromAnswers]);
+
+  const savedPerm = metamaskStore.getState().permission;
+  const hasRealPermission = !!(
+    savedPerm?.permissionsContext &&
+    savedPerm.permissionsContext.length > 40 &&
+    !savedPerm.permissionsContext.includes("demo") &&
+    savedPerm.permissionsContext.startsWith("0x")
+  );
+  const hasPermission = hasRealPermission;
+
+  // IMP-3: Permission expiry countdown
+  const permExpiresAt = savedPerm?.expiresAt ?? null;
+  const permDaysLeft  = permExpiresAt
+    ? Math.max(0, Math.floor((permExpiresAt - Date.now() / 1000) / 86400))
+    : null;
+  const permExpirySoon = permDaysLeft !== null && permDaysLeft < 14;
+
+  return (
+    <div
+      style={{
+        background: PAPER,
+        color: TEXT,
+        height: "100vh",
+        width: "100vw",
+        display: "grid",
+        gridTemplateColumns: "232px 1fr",
+        gridTemplateRows: "48px 1fr",
+        gridTemplateAreas: `"side top" "side canvas"`,
+        overflow: "hidden",
+        fontFamily: "var(--sans)",
+      }}
+    >
+      {/* ── Sidebar ── */}
+      <aside style={{ gridArea: "side", borderRight: `1px solid ${LINE}`, padding: "18px 14px", display: "flex", flexDirection: "column", gap: 24 }}>
+        <Brand />
+
+        <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+          <button
+            onClick={startNewChat}
+            style={{
+              display: "flex", alignItems: "center", justifyContent: "center", gap: 9,
+              padding: "10px 12px", borderRadius: 9,
+              background: ACCENT, color: INK,
+              border: "none",
+              fontWeight: 600, fontSize: 13, letterSpacing: "-0.005em",
+              cursor: "pointer",
+              transition: "transform .2s, box-shadow .2s",
+            }}
+            onMouseEnter={(e) => { e.currentTarget.style.transform = "translateY(-1px)"; e.currentTarget.style.boxShadow = `0 6px 16px -4px ${ACCENT_GLOW}`; }}
+            onMouseLeave={(e) => { e.currentTarget.style.transform = "translateY(0)";    e.currentTarget.style.boxShadow = "none"; }}
+          >
+            <Plus size={14} strokeWidth={2.5} /> New workflow
+          </button>
+          <button
+            onClick={() => setCreating(true)}
+            style={{
+              padding: "7px 12px", borderRadius: 7,
+              background: "transparent", color: TEXT2,
+              border: `1px solid ${LINE_MID}`,
+              fontSize: 11.5, cursor: "pointer", letterSpacing: "-0.005em",
+            }}
+          >
+            + Solo agent (no workflow)
+          </button>
+        </div>
+
+        <nav style={{ display: "flex", flexDirection: "column", gap: 1 }}>
+          <NavItem icon={LayoutDashboard} label="Hub"          active />
+          <NavItem icon={WorkflowIcon}    label="Agents"       count={agents.length} />
+          <NavItem
+            icon={Clock}
+            label="History"
+            onClick={() => router.push("/dashboard/history")}
+          />
+          <NavItem icon={BarChart2}       label="Portfolio"  onClick={() => router.push("/dashboard/portfolio")} />
+          <NavItem icon={BookUser}        label="Address book" />
+        </nav>
+
+        <div style={{ flex: 1 }} />
+
+        <div style={{ display: "flex", gap: 14, padding: "0 6px", fontSize: 11, color: MID, letterSpacing: "0.04em" }}>
+          <a href="#">Docs</a><a href="#">Discord</a><a href="#">Status</a>
+        </div>
+      </aside>
+
+      {/* ── Top bar ── */}
+      <header style={{ gridArea: "top", display: "flex", alignItems: "center", borderBottom: `1px solid ${LINE}`, padding: "0 16px", gap: 14 }}>
+        <span style={{ display: "inline-flex", alignItems: "center", gap: 8, fontSize: 12.5, color: TEXT }}>
+          <span style={{ width: 8, height: 8, borderRadius: 2, background: ACCENT }} />
+          Workspace
+        </span>
+        <span style={{ color: MID, fontSize: 12, opacity: 0.5 }}>/</span>
+        <span style={{ fontSize: 13, fontWeight: 500, color: TEXT }}>Agents</span>
+        <span style={{ fontSize: 11, color: MID, letterSpacing: "0.06em" }}>· {agents.length} active</span>
+
+        {/* Workflow switcher — each workflow is its own canvas */}
+        {workflowList.length > 1 && (
+          <select
+            value={effectiveWorkflowId ?? ""}
+            onChange={(e) => setActiveWorkflowId(e.target.value)}
+            title="Switch workflow — each is its own canvas"
+            style={{
+              marginLeft: 10, padding: "4px 8px", borderRadius: 6,
+              background: INK_1, color: TEXT, border: `1px solid ${LINE_MID}`,
+              fontSize: 11.5, cursor: "pointer", maxWidth: 220,
+            }}
+          >
+            {workflowList.map((w) => (
+              <option key={w.id} value={w.id}>
+                {w.label} · {w.count} agent{w.count !== 1 ? "s" : ""}
+              </option>
+            ))}
+          </select>
+        )}
+
+        {/* One-click delete of the whole active workflow */}
+        {effectiveWorkflowId && effectiveWorkflowId !== "__solo__" && (
+          <button
+            onClick={deleteActiveWorkflow}
+            disabled={deletingWf}
+            title="Delete this whole workflow and its agents"
+            style={{
+              marginLeft: 8, display: "inline-flex", alignItems: "center", gap: 5,
+              padding: "4px 9px", borderRadius: 6, background: "transparent",
+              border: `1px solid rgba(255,138,102,0.3)`, color: "#FF8A66",
+              fontSize: 11, cursor: deletingWf ? "not-allowed" : "pointer", opacity: deletingWf ? 0.6 : 1,
+            }}
+            onMouseEnter={(e) => { if (!deletingWf) e.currentTarget.style.background = "rgba(255,138,102,0.08)"; }}
+            onMouseLeave={(e) => { e.currentTarget.style.background = "transparent"; }}
+          >
+            <Trash2 size={12} /> {deletingWf ? "Deleting…" : "Delete workflow"}
+          </button>
+        )}
+
+        <div style={{ flex: 1 }} />
+
+        {/* One-click team run */}
+        <button
+          onClick={runTeam}
+          disabled={teamRunning}
+          title="Run the whole workflow once: Fund Manager → specialized workers"
+          style={{
+            display: "inline-flex", alignItems: "center", gap: 6,
+            padding: "5px 12px", borderRadius: 6,
+            background: "rgba(164,110,219,0.1)",
+            border: `1px solid rgba(164,110,219,0.3)`,
+            color: ACCENT_TX,
+            fontSize: 11.5, cursor: teamRunning ? "not-allowed" : "pointer",
+            opacity: teamRunning ? 0.6 : 1, fontWeight: 500, letterSpacing: "0.02em",
+          }}
+        >
+          {teamRunning ? "▶ Running…" : "▶ Run Team"}
+        </button>
+
+        {/* Permission button — ALWAYS visible (IMP-3: shows expiry countdown) */}
+        <button
+          onClick={() => setPermGrantOpen(true)}
+          title={permDaysLeft !== null ? `Permission expires in ${permDaysLeft} days` : undefined}
+          style={{
+            display: "inline-flex", alignItems: "center", gap: 7,
+            padding: "5px 12px", borderRadius: 6,
+            background: !hasPermission ? "rgba(164,110,219,0.12)"
+              : permDaysLeft === 0   ? "rgba(255,69,69,0.12)"
+              : permExpirySoon       ? "rgba(255,210,60,0.1)"
+              :                        "rgba(164,110,219,0.06)",
+            border: `1px solid ${!hasPermission ? "rgba(164,110,219,0.3)"
+              : permDaysLeft === 0   ? "rgba(255,69,69,0.4)"
+              : permExpirySoon       ? "rgba(255,210,60,0.3)"
+              :                        "rgba(164,110,219,0.18)"}`,
+            color: !hasPermission    ? ACCENT_TX
+              : permDaysLeft === 0   ? "#C2410C"
+              : permExpirySoon       ? "#B45309"
+              :                        TEXT2,
+            fontSize: 11.5, cursor: "pointer",
+            letterSpacing: "0.02em", fontWeight: 500,
+          }}
+        >
+          {!hasPermission      ? "🔑 Grant ERC-7715"
+          : permDaysLeft === 0 ? "🔑 Permission expired"
+          : permExpirySoon     ? `🔑 ${permDaysLeft}d left`
+          :                      `🔑 ${permDaysLeft !== null ? `${permDaysLeft}d` : "active"}`}
+        </button>
+        <TelegramLinkChip />
+        <ConnectChip />
+      </header>
+
+      {/* ── Canvas ── */}
+      <section style={{ gridArea: "canvas", position: "relative", overflow: "hidden" }}>
+        <ReactFlow
+          nodes={nodes}
+          edges={edges}
+          onNodesChange={onNodesChange}
+          onEdgesChange={onEdgesChange}
+          nodeTypes={NODE_TYPES}
+          minZoom={0.4}
+          maxZoom={2}
+          proOptions={{ hideAttribution: true }}
+          style={{ background: "transparent" }}
+        >
+          <Background variant={BackgroundVariant.Dots} gap={24} size={1} color="rgba(20,21,16,0.06)" />
+          {/* Fix 1: FitViewOnLoad fires after async load */}
+          <FitViewOnLoad nodeCount={nodes.length} />
+        </ReactFlow>
+
+        {/* Phase 1/2b: chat is the front door (hero) with no agents, and docks
+            into a collapsible left rail beside the canvas once agents exist. */}
+        {newChatMode ? (
+          // New workflow → blank canvas + fresh empty chat (full overlay).
+          <div className="clove-fade-in" style={{ position: "absolute", inset: 0, background: SURFACE, zIndex: 20 }}>
+            <ChatPanel
+              mode="hero"
+              newChatNonce={newChatNonce}
+              onConfirmCreate={createFromAnswers}
+              onClose={() => setNewChatMode(false)}
+            />
+          </div>
+        ) : agents.length === 0 ? (
+          <ChatPanel mode="hero" newChatNonce={newChatNonce} onConfirmCreate={createFromAnswers} />
+        ) : (
+          <ChatPanel mode="docked" newChatNonce={newChatNonce} onConfirmCreate={createFromAnswers} />
+        )}
+
+        {/* Fix 3C: Right history drawer */}
+        {drawerOpen && selectedAgentData && (
+          <HistoryDrawer
+            agent={selectedAgentData}
+            onClose={() => { setDrawerOpen(false); setSelectedAgentId(null); }}
+            onRefresh={() => {
+              if (selectedAgentId) {
+                fetch(`/api/agent/${selectedAgentId}`)
+                  .then(r => r.ok ? r.json() : null)
+                  .then(d => {
+                    if (!d?.agent) return;
+                    // Map AgentThought[] from DB into the display format
+                    const rawThoughts = (d.thoughts ?? []) as Array<{
+                      type: string; content: Record<string, unknown>; createdAt?: string;
+                    }>;
+                    const thoughts = rawThoughts.slice(-5).reverse().map(t => ({
+                      step:    t.type,
+                      content: typeof t.content?.text === "string"  ? t.content.text
+                             : typeof t.content?.insight === "string" ? t.content.insight
+                             : typeof t.content?.tool === "string"    ? `${t.content.tool}()`
+                             : JSON.stringify(t.content).slice(0, 120),
+                      ts: t.createdAt,
+                    }));
+                    setSelectedAgentData({ ...(d.agent as Agent), thoughts });
+                  })
+                  .catch(() => {});
+              }
+            }}
+          />
+        )}
+      </section>
+
+      {/* ── Modals ── */}
+      {creating && (
+        <CreateAgentModal
+          onClose={() => setCreating(false)}
+          onCreated={async () => { setCreating(false); await loadAgents(); }}
+        />
+      )}
+
+      {delegateFrom && (
+        <DelegateModal
+          parent={delegateFrom}
+          candidates={agents.filter(a => a.id !== delegateFrom.id && a.parentAgentId !== delegateFrom.id)}
+          onClose={() => setDelegateFrom(null)}
+          onDone={async () => { setDelegateFrom(null); await loadAgents(); }}
+        />
+      )}
+
+
+      {/* Questionnaire modal */}
+      {questionnaire && (
+        <QuestionnaireModal
+          questionnaire={questionnaire}
+          answers={answers}
+          setAnswers={setAnswers}
+          onSubmit={submitQuestionnaire}
+          onClose={() => { setQuestionnaire(null); setAnswers({}); }}
+          submitting={qSubmitting}
+        />
+      )}
+
+      {/* Permission grant modal (from top bar button OR Step 3 flow) */}
+      {permGrantOpen && (
+        <PermGrantModal
+          onClose={() => setPermGrantOpen(false)}
+          onGranted={async () => {
+            setPermGrantOpen(false);
+            // Auto-bind to every pending agent so they go live immediately —
+            // no manual "delegate →" click required per agent
+            await bindPermissionToPendingAgents();
+            // bindPermissionToPendingAgents already calls loadAgents() + toast
+            // but call once more in case there were no pending agents
+            await loadAgents();
+          }}
+        />
+      )}
+
+      {/* UX-5: Step 3 / 3 — Grant Permission (auto-opens after agent creation when no real permission) */}
+      {postCreatePermOpen && (
+        <Step3PermissionModal
+          agentCount={postCreateAgentCount}
+          onClose={() => {
+            setPostCreatePermOpen(false);
+            toast("Grant an ERC-7715 permission before creating agents to enable real on-chain execution.", "info");
+          }}
+          onGranted={() => {
+            // Close Step 3 and open the real PermGrantModal immediately
+            setPostCreatePermOpen(false);
+            setPermGrantOpen(true);
+          }}
+        />
+      )}
+
+      {/* Schedule modal */}
+      {scheduleAgent && (
+        <ScheduleModal
+          agent={scheduleAgent}
+          onClose={() => setScheduleAgent(null)}
+          onSaved={async () => { setScheduleAgent(null); await loadAgents(); }}
+        />
+      )}
+
+      {/* UX-1: Toast notifications — replaces all alert() calls */}
+      <div style={{ position: "fixed", bottom: 80, right: 20, zIndex: 500, display: "flex", flexDirection: "column", gap: 8, pointerEvents: "none" }}>
+        {toasts.map(t => (
+          <div key={t.id} style={{
+            padding: "10px 16px", borderRadius: 8, fontSize: 12.5,
+            background: t.type === "success" ? "rgba(164,110,219,0.15)"
+                      : t.type === "error"   ? "rgba(255,69,69,0.15)"
+                      :                        "rgba(20,21,16,0.1)",
+            border: `1px solid ${t.type === "success" ? "rgba(164,110,219,0.3)" : t.type === "error" ? "rgba(255,69,69,0.3)" : LINE_MID}`,
+            color: t.type === "success" ? ACCENT_TX : t.type === "error" ? "#FF8A66" : TEXT,
+            backdropFilter: "blur(8px)",
+            boxShadow: "0 4px 16px -4px rgba(0,0,0,0.5)",
+            maxWidth: 360, lineHeight: 1.4,
+            animation: "fadeInUp 0.2s ease",
+          }}>
+            {t.msg}
+          </div>
+        ))}
+      </div>
+
+      {/* UX-1: In-UI confirm dialog — replaces browser confirm() */}
+      {confirmState && (
+        <div
+          onClick={() => setConfirmState(null)}
+          style={{ position: "fixed", inset: 0, zIndex: 400, background: "rgba(11,12,9,0.7)", backdropFilter: "blur(6px)", display: "flex", alignItems: "center", justifyContent: "center" }}
+        >
+          <div
+            onClick={e => e.stopPropagation()}
+            style={{ background: INK_1, border: `1px solid ${LINE_MID}`, borderRadius: 12, padding: "24px 28px", width: 360, color: TEXT, display: "flex", flexDirection: "column", gap: 16 }}
+          >
+            <div style={{ fontSize: 14, lineHeight: 1.5 }}>{confirmState.msg}</div>
+            <div style={{ display: "flex", gap: 10, justifyContent: "flex-end" }}>
+              <button onClick={() => setConfirmState(null)} style={{ padding: "8px 14px", borderRadius: 7, background: "transparent", border: `1px solid ${LINE_MID}`, color: TEXT2, fontSize: 12.5, cursor: "pointer" }}>
+                Cancel
+              </button>
+              <button onClick={confirmState.onOk} style={{ padding: "8px 16px", borderRadius: 7, background: "rgba(255,69,69,0.15)", border: "1px solid rgba(255,69,69,0.4)", color: "#FF8A66", fontSize: 12.5, cursor: "pointer", fontWeight: 600 }}>
+                Delete
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+//  Schedule Modal — sets/clears scheduleIntervalMs on an agent
+// ─────────────────────────────────────────────────────────────────────────────
+
+// ─────────────────────────────────────────────────────────────────────────────
+//  New Workflow Modal — the primary creation flow
+// ─────────────────────────────────────────────────────────────────────────────
+
+function NewWorkflowModal({
+  onClose, onSubmit,
+}: {
+  onClose:  () => void;
+  onSubmit: (prompt: string) => Promise<void> | void;
+}) {
+  const [prompt, setPrompt] = useState("");
+  const [submitting, setSubmitting] = useState(false);
+
+  const submit = async () => {
+    if (!prompt.trim() || submitting) return;
+    setSubmitting(true);
+    try { await onSubmit(prompt); }
+    finally { setSubmitting(false); }
+  };
+
+  return (
+    <div
+      onClick={onClose}
+      style={{
+        position: "fixed", inset: 0, zIndex: 200,
+        background: "rgba(11,12,9,0.85)", backdropFilter: "blur(14px)",
+        display: "flex", alignItems: "center", justifyContent: "center", padding: 24,
+      }}
+    >
+      <div
+        onClick={(e) => e.stopPropagation()}
+        style={{
+          background: INK_1, border: `1px solid ${LINE_MID}`, borderRadius: 18,
+          width: 720, maxWidth: "100%", maxHeight: "88vh",
+          color: TEXT, display: "flex", flexDirection: "column",
+          fontFamily: "var(--sans)", overflow: "hidden",
+          boxShadow: "0 20px 80px -20px rgba(0,0,0,0.7)",
+        }}
+      >
+        {/* Header */}
+        <div style={{ padding: "26px 32px 20px", borderBottom: `1px solid ${LINE}` }}>
+          <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between" }}>
+            <div>
+              <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8 }}>
+                <span style={{ display: "inline-flex", width: 28, height: 28, alignItems: "center", justifyContent: "center", borderRadius: 7, background: "rgba(164,110,219,0.12)", border: "1px solid rgba(164,110,219,0.25)" }}>
+                  <svg width="15" height="15" viewBox="0 0 24 24">
+                    <circle cx="8" cy="8" r="3.5" fill={ACCENT} />
+                    <circle cx="16" cy="8" r="3.5" fill={ACCENT} opacity="0.85" />
+                    <circle cx="8" cy="16" r="3.5" fill={ACCENT} opacity="0.85" />
+                    <circle cx="16" cy="16" r="3.5" fill={ACCENT} opacity="0.7" />
+                  </svg>
+                </span>
+                <span style={{ fontSize: 10.5, color: MID, letterSpacing: "0.05em", textTransform: "uppercase" }}>
+                  Step 1 / 3 · Describe your goal
+                </span>
+              </div>
+              <div style={{ fontSize: 30, fontWeight: 500, fontFamily: "var(--serif)", fontStyle: "italic", letterSpacing: "-0.025em", lineHeight: 1.1 }}>
+                What should your workflow do?
+              </div>
+              <div style={{ fontSize: 13, color: TEXT2, marginTop: 8, lineHeight: 1.5, maxWidth: "52ch" }}>
+                A workflow is a team of AI agents with a shared budget, schedule, and on-chain identity. Describe what you want in plain English — CLOVE will ask follow-up questions and build the team for you.
+              </div>
+            </div>
+            <button onClick={onClose} style={{ background: "transparent", border: "none", cursor: "pointer", color: MID, marginTop: 4 }}>
+              <X size={18} />
+            </button>
+          </div>
+        </div>
+
+        {/* Main body: textarea + examples grid */}
+        <div style={{ padding: "20px 32px", flex: 1, overflowY: "auto" }}>
+          {/* Prompt textarea */}
+          <textarea
+            autoFocus
+            value={prompt}
+            onChange={(e) => setPrompt(e.target.value)}
+            onKeyDown={(e) => { if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) { e.preventDefault(); submit(); } }}
+            placeholder="Find the highest safe yield on Base above 8% APY. Skip risky protocols. Notify me on Telegram daily."
+            rows={4}
+            style={{
+              width: "100%", background: "rgba(20,21,16,0.04)",
+              border: `1px solid ${LINE_MID}`, borderRadius: 11,
+              color: TEXT, fontSize: 15, padding: "14px 16px",
+              outline: "none", resize: "none", lineHeight: 1.5,
+              fontFamily: "var(--sans)", letterSpacing: "-0.005em",
+              transition: "border-color .15s",
+            }}
+            onFocus={(e) => { e.currentTarget.style.borderColor = ACCENT; }}
+            onBlur={(e)  => { e.currentTarget.style.borderColor = LINE_MID; }}
+          />
+
+          <div style={{ fontSize: 10.5, color: MID, marginTop: 6 }}>
+            ⌘+Enter to submit · Examples below
+          </div>
+
+          {/* Categorized examples */}
+          <div style={{ marginTop: 22 }}>
+            <div style={{ fontSize: 10.5, color: MID, letterSpacing: "0.05em", textTransform: "uppercase", marginBottom: 12 }}>
+              Or pick a starting point
+            </div>
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+              {NL_PRESET_GROUPS.flatMap(group =>
+                group.examples.slice(0, 1).map((ex) => ({ icon: group.icon, category: group.category, text: ex }))
+              ).map((p, i) => (
+                <button
+                  key={i}
+                  onClick={() => setPrompt(p.text)}
+                  style={{
+                    display: "flex", flexDirection: "column", alignItems: "flex-start", gap: 6,
+                    padding: "12px 14px", borderRadius: 9,
+                    background: "rgba(20,21,16,0.03)",
+                    border: `1px solid ${LINE_MID}`,
+                    color: TEXT2, fontSize: 12, lineHeight: 1.4,
+                    cursor: "pointer", textAlign: "left",
+                    fontFamily: "var(--sans)",
+                    transition: "all .15s",
+                  }}
+                  onMouseEnter={(e) => { e.currentTarget.style.borderColor = ACCENT; e.currentTarget.style.color = TEXT; }}
+                  onMouseLeave={(e) => { e.currentTarget.style.borderColor = LINE_MID; e.currentTarget.style.color = TEXT2; }}
+                >
+                  <div style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 10, color: ACCENT_TX, letterSpacing: "0.04em", textTransform: "uppercase" }}>
+                    <span style={{ fontSize: 13 }}>{p.icon}</span> {p.category}
+                  </div>
+                  <div style={{ fontSize: 12.5, letterSpacing: "-0.005em" }}>{p.text}</div>
+                </button>
+              ))}
+            </div>
+          </div>
+        </div>
+
+        {/* Footer */}
+        <div style={{ padding: "16px 32px", borderTop: `1px solid ${LINE}`, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+          <div style={{ fontSize: 11, color: MID, lineHeight: 1.5 }}>
+            Next: clarify with 6 questions, then auto-wire your agent team.
+          </div>
+          <div style={{ display: "flex", gap: 10 }}>
+            <button
+              onClick={onClose}
+              style={{ padding: "10px 16px", borderRadius: 8, background: "transparent", border: `1px solid ${LINE_MID}`, color: TEXT2, fontSize: 13, cursor: "pointer" }}
+            >
+              Cancel
+            </button>
+            <button
+              onClick={submit}
+              disabled={submitting || !prompt.trim()}
+              style={{
+                padding: "10px 22px", borderRadius: 8,
+                background: ACCENT, color: INK,
+                border: "none", fontWeight: 600, fontSize: 13,
+                cursor: submitting || !prompt.trim() ? "not-allowed" : "pointer",
+                opacity: submitting || !prompt.trim() ? 0.5 : 1,
+                display: "inline-flex", alignItems: "center", gap: 7,
+              }}
+            >
+              {submitting ? "Analyzing…" : "Next — clarify →"}
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+const SCHEDULE_OPTIONS: Array<{ label: string; ms: number | null; desc: string }> = [
+  { label: "Off",          ms: null,                       desc: "Manual only — no autonomous runs" },
+  { label: "Every hour",   ms: 60 * 60 * 1000,             desc: "High-frequency · best for active trading" },
+  { label: "Every 6 hours",ms: 6 * 60 * 60 * 1000,         desc: "Balanced · good for most strategies" },
+  { label: "Daily",        ms: 24 * 60 * 60 * 1000,        desc: "Default · low cost" },
+  { label: "Weekly",       ms: 7 * 24 * 60 * 60 * 1000,    desc: "Maintenance only" },
+];
+
+function ScheduleModal({
+  agent, onClose, onSaved,
+}: {
+  agent:   Agent;
+  onClose: () => void;
+  onSaved: () => Promise<void> | void;
+}) {
+  const current = agent.scheduleIntervalMs ?? null;
+  const [picked, setPicked] = useState<number | null>(current);
+  const [saving, setSaving] = useState(false);
+
+  const save = async () => {
+    setSaving(true);
+    try {
+      await fetch(`/api/agent/${agent.id}`, {
+        method:  "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body:    JSON.stringify({ scheduleIntervalMs: picked }),
+      });
+      await onSaved();
+    } finally { setSaving(false); }
+  };
+
+  return (
+    <div
+      onClick={onClose}
+      style={{ position: "fixed", inset: 0, zIndex: 200, background: "rgba(11,12,9,0.82)", backdropFilter: "blur(12px)", display: "flex", alignItems: "center", justifyContent: "center", padding: 24 }}
+    >
+      <div
+        onClick={(e) => e.stopPropagation()}
+        style={{ background: INK_1, border: `1px solid ${LINE_MID}`, borderRadius: 16, padding: "26px 30px", width: 500, maxWidth: "100%", color: TEXT, display: "flex", flexDirection: "column", gap: 18 }}
+      >
+        <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between" }}>
+          <div>
+            <div style={{ fontSize: 10, color: MID, letterSpacing: "0.05em", textTransform: "uppercase", marginBottom: 6 }}>Schedule</div>
+            <div style={{ fontSize: 20, fontWeight: 500, fontFamily: "var(--serif)", fontStyle: "italic", letterSpacing: "-0.015em" }}>
+              When should {agent.name} run?
+            </div>
+          </div>
+          <button onClick={onClose} style={{ background: "transparent", border: "none", cursor: "pointer", color: MID }}><X size={16} /></button>
+        </div>
+
+        <div style={{ fontSize: 12, color: TEXT2, lineHeight: 1.55 }}>
+          The CLOVE cron service runs every hour. When picked schedule elapses, the agent runs its full plan→execute→reflect→telegram loop automatically.
+        </div>
+
+        <div style={{ display: "flex", flexDirection: "column", gap: 7 }}>
+          {SCHEDULE_OPTIONS.map(opt => {
+            const sel = picked === opt.ms;
+            return (
+              <button
+                key={String(opt.ms)}
+                onClick={() => setPicked(opt.ms)}
+                style={{
+                  display: "flex", alignItems: "center", justifyContent: "space-between",
+                  padding: "11px 14px", borderRadius: 9,
+                  background: sel ? "rgba(164,110,219,0.12)" : "transparent",
+                  border: `1px solid ${sel ? ACCENT : LINE_MID}`,
+                  color: sel ? TEXT : TEXT2,
+                  cursor: "pointer", textAlign: "left",
+                  transition: "all .15s",
+                }}
+              >
+                <div>
+                  <div style={{ fontSize: 13, fontWeight: 500 }}>{opt.label}</div>
+                  <div style={{ fontSize: 10.5, color: MID, marginTop: 2 }}>{opt.desc}</div>
+                </div>
+                {sel && <span style={{ color: ACCENT_TX, fontSize: 14 }}>✓</span>}
+              </button>
+            );
+          })}
+        </div>
+
+        <div style={{ display: "flex", justifyContent: "flex-end", gap: 10 }}>
+          <button onClick={onClose} style={{ padding: "9px 14px", borderRadius: 7, background: "transparent", border: `1px solid ${LINE_MID}`, color: TEXT2, fontSize: 12.5, cursor: "pointer" }}>
+            Cancel
+          </button>
+          <button onClick={save} disabled={saving} style={{ padding: "9px 18px", borderRadius: 7, background: ACCENT, color: INK, border: "none", fontWeight: 600, fontSize: 12.5, cursor: saving ? "not-allowed" : "pointer", opacity: saving ? 0.6 : 1 }}>
+            {saving ? "Saving…" : "Save schedule"}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+//  Fix 3A: Floating NL prompt bar
+// ─────────────────────────────────────────────────────────────────────────────
+
+// Curated examples — clustered by intent so users discover the full range
+const NL_PRESET_GROUPS: Array<{ category: string; icon: string; examples: string[] }> = [
+  {
+    category: "Yield",
+    icon: "💰",
+    examples: [
+      "Deposit my USDC into Morpho when APY > 8%, hold otherwise",
+      "Find the highest safe yield on Base above 6% APY",
+      "Move my idle USDC into the best stablecoin vault weekly",
+    ],
+  },
+  {
+    category: "DCA",
+    icon: "🔁",
+    examples: [
+      "DCA $5 into ETH every Monday via Uniswap, skip if gas > 2 gwei",
+      "Buy $10 of WETH daily for 30 days, alert if price drops 5%",
+    ],
+  },
+  {
+    category: "Rebalancing",
+    icon: "⚖",
+    examples: [
+      "Rebalance my USDC/ETH to 60/40 monthly on Aerodrome",
+      "Keep my Morpho position above 8% APY — rebalance to Sky if it drops",
+    ],
+  },
+  {
+    category: "Risk monitoring",
+    icon: "🛡",
+    examples: [
+      "Watch my Morpho deposit, withdraw if any HIGH risk signal",
+      "Monitor Lido stETH peg — alert if depeg > 0.5%",
+    ],
+  },
+  {
+    category: "Multi-agent",
+    icon: "🤖",
+    examples: [
+      "Create a 3-agent team: scout, risk monitor, executor on Base",
+      "Build agents that vote in Compound governance on my behalf",
+    ],
+  },
+];
+
+const NL_PRESETS = NL_PRESET_GROUPS.flatMap(g => g.examples);
+
+// ─────────────────────────────────────────────────────────────────────────────
+//  Fix 3C: Right history drawer
+// ─────────────────────────────────────────────────────────────────────────────
+
+function HistoryDrawer({
+  agent, onClose, onRefresh,
+}: {
+  agent: Agent;
+  onClose: () => void;
+  onRefresh: () => void;
+}) {
+  const thoughts = agent.thoughts ?? [];
+
+  return (
+    <div style={{
+      position: "absolute", top: 0, right: 0, bottom: 0, width: 280,
+      background: INK_1, borderLeft: `1px solid ${LINE_MID}`, zIndex: 15,
+      display: "flex", flexDirection: "column",
+      boxShadow: "-8px 0 32px -8px rgba(0,0,0,0.5)",
+    }}>
+      {/* Header */}
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "14px 16px", borderBottom: `1px solid ${LINE}` }}>
+        <div>
+          <div style={{ fontSize: 10, color: MID, letterSpacing: "0.05em", textTransform: "uppercase" }}>Canvas history</div>
+          <div style={{ fontSize: 14, fontWeight: 600, color: TEXT, marginTop: 2 }}>{agent.name}</div>
+        </div>
+        <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+          <button
+            onClick={onRefresh}
+            style={{ background: "transparent", border: "none", cursor: "pointer", color: MID, fontSize: 11, padding: "3px 6px" }}
+          >
+            ↺ Refresh
+          </button>
+          <button
+            onClick={onClose}
+            style={{ background: "transparent", border: "none", cursor: "pointer", color: MID }}
+          >
+            <X size={14} />
+          </button>
+        </div>
+      </div>
+
+      {/* Scrollable body — meta, delegation, portfolio, thoughts all scroll together */}
+      <div style={{ flex: 1, overflowY: "auto" }}>
+      {/* Agent meta — UX-4: added lastRunAt, x402SpentUsdc, txHash */}
+      <div style={{ padding: "12px 16px", borderBottom: `1px solid ${LINE}` }}>
+        <div style={{ fontSize: 11.5, color: TEXT2, lineHeight: 1.5 }}>
+          <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 4 }}>
+            <span style={{ color: MID }}>Status</span>
+            <span style={{ color: agent.status === "executing" || agent.status === "planning" ? ACCENT_TX : TEXT2 }}>
+              {agent.status}
+            </span>
+          </div>
+          <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 4 }}>
+            <span style={{ color: MID }}>Budget used</span>
+            <span>
+              {parseFloat(String(agent.budgetUsedUsdc ?? 0)).toFixed(3)}
+              <span style={{ color: MID }}> / {agent.budgetUsdc} USDC</span>
+            </span>
+          </div>
+          <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 4 }}>
+            <span style={{ color: MID }}>Runs</span>
+            <span>{agent.totalRuns}</span>
+          </div>
+          <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 4 }}>
+            <span style={{ color: MID }}>Last action</span>
+            <span style={{ color: lastActionColor(agent.lastAction) }}>{agent.lastAction ?? "—"}</span>
+          </div>
+          {agent.lastRunAt && (
+            <div style={{ display: "flex", justifyContent: "space-between" }}>
+              <span style={{ color: MID }}>Last run</span>
+              <span style={{ fontSize: 10.5 }}>
+                {new Date(agent.lastRunAt).toLocaleString(undefined, { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" })}
+              </span>
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* #5: on-chain delegation chain (user → session → THIS AGENT → relayer) */}
+      <div style={{ padding: "12px 16px", borderBottom: `1px solid ${LINE}` }}>
+        <DelegationChainPanel agentId={agent.id} />
+      </div>
+
+      {/* Permission report — live blast radius from the real ERC-7715 grant */}
+      <div style={{ padding: "12px 16px", borderBottom: `1px solid ${LINE}` }}>
+        <PermissionReportPanel />
+      </div>
+
+      {/* #2: portfolio behaviour + recent moves (what the agent did to positions) */}
+      <div style={{ padding: "12px 16px", borderBottom: `1px solid ${LINE}` }}>
+        <PortfolioPanel />
+      </div>
+
+      {/* Thoughts — UX-4: Basescan links + cost chips */}
+      <div style={{ padding: "12px 16px" }}>
+        <div style={{ fontSize: 10, color: MID, letterSpacing: "0.04em", textTransform: "uppercase", marginBottom: 10, display: "flex", alignItems: "center", gap: 6 }}>
+          <Clock size={10} /> Recent thoughts
+        </div>
+        {thoughts.length === 0 ? (
+          <div style={{ fontSize: 12, color: MID, fontStyle: "italic" }}>No thought history yet. Run the agent to see its reasoning.</div>
+        ) : (
+          thoughts.map((t, i) => (
+            <div key={i} style={{ marginBottom: 12, paddingBottom: 12, borderBottom: i < thoughts.length - 1 ? `1px solid ${LINE}` : "none" }}>
+              {/* thought type badge */}
+              <div style={{ fontSize: 9.5, color: ACCENT_TX, letterSpacing: "0.08em", textTransform: "uppercase", marginBottom: 4 }}>{t.step}</div>
+
+              {/* thought content */}
+              <div style={{ fontSize: 11, color: TEXT2, lineHeight: 1.5, fontFamily: t.step === "reflect" ? "var(--serif)" : "var(--sans)", fontStyle: t.step === "reflect" ? "italic" : "normal" }}>
+                {t.content.slice(0, 400)}{t.content.length > 400 ? "…" : ""}
+              </div>
+
+              {/* UX-4: txHash → Basescan link */}
+              {t.txHash && (
+                <a
+                  href={`https://basescan.org/tx/${t.txHash}`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  style={{
+                    display: "inline-flex", alignItems: "center", gap: 4, marginTop: 5,
+                    fontSize: 9.5, color: ACCENT_TX, textDecoration: "none",
+                    background: "rgba(164,110,219,0.08)", border: "1px solid rgba(164,110,219,0.2)",
+                    padding: "2px 7px", borderRadius: 4,
+                  }}
+                >
+                  ↗ {t.txHash.slice(0, 10)}…{t.txHash.slice(-6)} · Basescan
+                </a>
+              )}
+
+              {/* timestamp */}
+              {t.ts && (
+                <div style={{ fontSize: 9, color: MID, marginTop: 4, opacity: 0.7 }}>
+                  {new Date(t.ts).toLocaleTimeString()}
+                </div>
+              )}
+            </div>
+          ))
+        )}
+      </div>
+      </div>
+    </div>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+//  Fix 4: Security Scan Modal
+// ─────────────────────────────────────────────────────────────────────────────
+
+
+// ─────────────────────────────────────────────────────────────────────────────
+//  SessionAddressChip
+// ─────────────────────────────────────────────────────────────────────────────
+
+function SessionAddressChip() {
+  const [show, setShow] = useState(false);
+  // Read address client-side only to avoid SSR/client hydration mismatch
+  const [addr, setAddr] = useState<string | null>(null);
+  useEffect(() => {
+    const update = () => {
+      const envAddr = typeof process !== 'undefined' ? (process.env?.NEXT_PUBLIC_CAPMATRIX_SESSION_ADDRESS ?? process.env?.NEXT_PUBLIC_CLOVE_SESSION_ADDRESS) : null;
+      const a = envAddr ?? metamaskStore.getState().sessionAddress ?? null;
+      setAddr(a);
+    };
+    update();
+    const u = metamaskStore.addListener(update);
+    return () => u();
+  }, []);
+  if (!addr) return null;
+  return (
+    <div style={{ position: "relative", display: "inline-flex" }}>
+      <button
+        onClick={() => setShow(s => !s)}
+        style={{
+          display: "inline-flex", alignItems: "center", gap: 6,
+          padding: "4px 8px", borderRadius: 5,
+          background: "transparent", border: "none",
+          color: MID_2, fontSize: 10.5, cursor: "pointer",
+          letterSpacing: "0.04em", fontVariantNumeric: "tabular-nums",
+        }}
+      >
+        <span style={{ width: 5, height: 5, borderRadius: "50%", background: ACCENT }} />
+        {addr.slice(0, 6)}…{addr.slice(-4)}
+      </button>
+      {show && (
+        <div
+          onClick={() => setShow(false)}
+          style={{
+            position: "absolute", top: "calc(100% + 8px)", right: 0, zIndex: 50,
+            width: 300, padding: "14px 16px", borderRadius: 10,
+            background: INK_1, border: `1px solid ${LINE_MID}`,
+            boxShadow: "0 8px 32px -8px rgba(0,0,0,0.6)",
+          }}
+        >
+          <div style={{ fontSize: 10, color: MID, letterSpacing: "0.04em", textTransform: "uppercase", marginBottom: 8 }}>
+            CLOVE Agent Wallet (1Shot)
+          </div>
+          <div style={{ fontSize: 11, color: TEXT2, lineHeight: 1.6 }}>
+            This is CLOVE&apos;s server wallet on <strong style={{ color: TEXT }}>Base mainnet</strong>.
+            Your MetaMask wallet grants an ERC-7715 permission <em>to</em> this address —
+            your USDC only moves when you approve the delegation.
+            CLOVE never holds your keys.
+          </div>
+          <div style={{ marginTop: 10, fontSize: 10.5, color: ACCENT_TX, fontFamily: "monospace", wordBreak: "break-all" }}>
+            {addr}
+          </div>
+          <a
+            href={`https://basescan.org/address/${addr}`}
+            target="_blank" rel="noopener noreferrer"
+            style={{ display: "block", marginTop: 8, fontSize: 10.5, color: ACCENT_TX, textDecoration: "underline" }}
+          >
+            View on Basescan ↗
+          </a>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+//  Questionnaire Modal — Claude Design style
+// ─────────────────────────────────────────────────────────────────────────────
+
+function QuestionnaireModal({
+  questionnaire, answers, setAnswers, onSubmit, onClose, submitting,
+}: {
+  questionnaire: Questionnaire;
+  answers:       Record<string, unknown>;
+  setAnswers:    React.Dispatch<React.SetStateAction<Record<string, unknown>>>;
+  onSubmit:      () => void;
+  onClose:       () => void;
+  submitting:    boolean;
+}) {
+  const toggle = (qId: string, val: string) => {
+    setAnswers(prev => {
+      const cur = (prev[qId] as string[] | undefined) ?? [];
+      return { ...prev, [qId]: cur.includes(val) ? cur.filter(x => x !== val) : [...cur, val] };
+    });
+  };
+
+  const setSingle = (qId: string, val: string) =>
+    setAnswers(prev => ({ ...prev, [qId]: val }));
+
+  const setSlider = (qId: string, val: number) =>
+    setAnswers(prev => ({ ...prev, [qId]: val }));
+
+  return (
+    <div
+      onClick={onClose}
+      style={{
+        position: "fixed", inset: 0, zIndex: 200,
+        background: "rgba(11,12,9,0.82)", backdropFilter: "blur(12px)",
+        display: "flex", alignItems: "center", justifyContent: "center", padding: 24,
+      }}
+    >
+      <div
+        onClick={e => e.stopPropagation()}
+        style={{
+          background: INK_1, border: `1px solid ${LINE_MID}`, borderRadius: 16,
+          width: 640, maxWidth: "100%", maxHeight: "88vh",
+          color: TEXT, display: "flex", flexDirection: "column",
+          fontFamily: "var(--sans)", overflow: "hidden",
+        }}
+      >
+        {/* Header */}
+        <div style={{ padding: "24px 28px 0", borderBottom: `1px solid ${LINE}`, paddingBottom: 18 }}>
+          <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between" }}>
+            <div>
+              <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 6 }}>
+                <span style={{ display: "inline-flex", width: 24, height: 24, alignItems: "center", justifyContent: "center", borderRadius: 6, background: "rgba(164,110,219,0.12)", border: "1px solid rgba(164,110,219,0.25)" }}>
+                  <svg width="13" height="13" viewBox="0 0 24 24">
+                    <circle cx="8" cy="8" r="3.5" fill={ACCENT} />
+                    <circle cx="16" cy="8" r="3.5" fill={ACCENT} opacity="0.85" />
+                    <circle cx="8" cy="16" r="3.5" fill={ACCENT} opacity="0.85" />
+                    <circle cx="16" cy="16" r="3.5" fill={ACCENT} opacity="0.7" />
+                  </svg>
+                </span>
+                <span style={{ fontSize: 10.5, color: MID, letterSpacing: "0.05em", textTransform: "uppercase" }}>
+                  Step 2 / 3 · Clarify your strategy
+                </span>
+              </div>
+              <div style={{ fontSize: 11.5, color: TEXT2, lineHeight: 1.5, maxWidth: "48ch" }}>
+                {questionnaire.summary}
+              </div>
+            </div>
+            <button onClick={onClose} style={{ background: "transparent", border: "none", cursor: "pointer", color: MID }}>
+              <X size={16} />
+            </button>
+          </div>
+        </div>
+
+        {/* Questions */}
+        <div style={{ overflowY: "auto", padding: "20px 28px", display: "flex", flexDirection: "column", gap: 24, flex: 1 }}>
+          {questionnaire.questions.map((q) => (
+            <div key={q.id}>
+              <div style={{ fontSize: 14, fontWeight: 500, color: TEXT, marginBottom: q.hint ? 4 : 10 }}>
+                {q.label}
+              </div>
+              {q.hint && (
+                <div style={{ fontSize: 11, color: MID, marginBottom: 10, letterSpacing: "0.02em" }}>
+                  {q.hint}
+                </div>
+              )}
+
+              {/* Single select */}
+              {q.type === "single" && q.options && (
+                <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
+                  {q.options.map(opt => {
+                    const selected = answers[q.id] === opt;
+                    return (
+                      <button
+                        key={opt}
+                        onClick={() => setSingle(q.id, opt)}
+                        style={{
+                          padding: "7px 14px", borderRadius: 999, fontSize: 12.5,
+                          background: selected ? ACCENT : "transparent",
+                          border: `1px solid ${selected ? ACCENT : LINE_MID}`,
+                          color: selected ? INK : TEXT2,
+                          cursor: "pointer", fontWeight: selected ? 600 : 400,
+                          transition: "all .15s",
+                        }}
+                      >
+                        {opt}
+                      </button>
+                    );
+                  })}
+                </div>
+              )}
+
+              {/* Multi select */}
+              {q.type === "multi" && q.options && (
+                <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
+                  {q.options.map(opt => {
+                    const sel = ((answers[q.id] as string[] | undefined) ?? []).includes(opt);
+                    return (
+                      <button
+                        key={opt}
+                        onClick={() => toggle(q.id, opt)}
+                        style={{
+                          padding: "7px 14px", borderRadius: 999, fontSize: 12.5,
+                          background: sel ? "rgba(164,110,219,0.15)" : "transparent",
+                          border: `1px solid ${sel ? ACCENT : LINE_MID}`,
+                          color: sel ? ACCENT_TX : TEXT2,
+                          cursor: "pointer", transition: "all .15s",
+                        }}
+                      >
+                        {sel ? "✓ " : ""}{opt}
+                      </button>
+                    );
+                  })}
+                </div>
+              )}
+
+              {/* Slider */}
+              {q.type === "slider" && (
+                <div style={{ display: "flex", alignItems: "center", gap: 14 }}>
+                  <input
+                    type="range"
+                    min={q.min ?? 1} max={q.max ?? 100} step={q.step ?? 1}
+                    value={(answers[q.id] as number | undefined) ?? q.defaultVal ?? q.min ?? 10}
+                    onChange={e => setSlider(q.id, Number(e.target.value))}
+                    style={{ flex: 1, accentColor: ACCENT }}
+                  />
+                  <span style={{ fontSize: 16, fontWeight: 600, color: ACCENT_TX, minWidth: 60, textAlign: "right", fontVariantNumeric: "tabular-nums" }}>
+                    {String(answers[q.id] ?? q.defaultVal ?? q.min ?? 10)}
+                    {q.unit ? ` ${q.unit}` : ""}
+                  </span>
+                </div>
+              )}
+
+              {/* Text */}
+              {q.type === "text" && (
+                <input
+                  type="text"
+                  value={(answers[q.id] as string | undefined) ?? ""}
+                  onChange={e => setAnswers(prev => ({ ...prev, [q.id]: e.target.value }))}
+                  placeholder="Your answer…"
+                  style={{
+                    width: "100%", background: "rgba(20,21,16,0.04)",
+                    border: `1px solid ${LINE_MID}`, color: TEXT,
+                    fontSize: 13, padding: "9px 11px", borderRadius: 7, outline: "none",
+                    fontFamily: "var(--sans)",
+                  }}
+                />
+              )}
+            </div>
+          ))}
+        </div>
+
+        {/* Footer */}
+        <div style={{ padding: "16px 28px", borderTop: `1px solid ${LINE}`, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+          <span style={{ fontSize: 11, color: MID }}>
+            {(answers.orchestration as string | undefined)?.includes("Multi") ? "⚡ Will create a Fund Manager → specialized workers (each on-chain-capped)" : ""}
+          </span>
+          <div style={{ display: "flex", gap: 10 }}>
+            <button
+              onClick={onClose}
+              style={{ padding: "9px 14px", borderRadius: 7, background: "transparent", border: `1px solid ${LINE_MID}`, color: TEXT2, fontSize: 12.5, cursor: "pointer" }}
+            >
+              Cancel
+            </button>
+            <button
+              onClick={onSubmit}
+              disabled={submitting}
+              style={{
+                padding: "9px 18px", borderRadius: 7,
+                background: ACCENT, color: INK,
+                border: "none", fontWeight: 600, fontSize: 12.5,
+                cursor: submitting ? "not-allowed" : "pointer",
+                opacity: submitting ? 0.6 : 1,
+              }}
+            >
+              {submitting ? "Creating agents…" : "Create agent →"}
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+//  UX-5: Step 3 / 3 — Grant Permission (auto-opens after agent creation)
+// ─────────────────────────────────────────────────────────────────────────────
+
+function Step3PermissionModal({
+  agentCount, onClose, onGranted,
+}: {
+  agentCount: number;
+  onClose:    () => void;
+  onGranted:  () => void;
+}) {
+  return (
+    <div
+      onClick={onClose}
+      style={{
+        position: "fixed", inset: 0, zIndex: 300,
+        background: "rgba(11,12,9,0.88)", backdropFilter: "blur(16px)",
+        display: "flex", alignItems: "center", justifyContent: "center", padding: 24,
+      }}
+    >
+      <div
+        onClick={e => e.stopPropagation()}
+        style={{
+          background: INK_1, border: `1px solid ${LINE_MID}`, borderRadius: 18,
+          width: 560, maxWidth: "100%",
+          color: TEXT, fontFamily: "var(--sans)",
+          boxShadow: "0 20px 80px -20px rgba(0,0,0,0.8)",
+          overflow: "hidden",
+        }}
+      >
+        {/* Step indicator bar */}
+        <div style={{ display: "flex", height: 3 }}>
+          <div style={{ flex: 1, background: ACCENT, opacity: 0.4 }} />
+          <div style={{ flex: 1, background: ACCENT, opacity: 0.4 }} />
+          <div style={{ flex: 1, background: ACCENT }} />
+        </div>
+
+        <div style={{ padding: "28px 32px 32px" }}>
+          {/* Eyebrow */}
+          <div style={{ fontSize: 10.5, color: MID, letterSpacing: "0.05em", textTransform: "uppercase", marginBottom: 10 }}>
+            Step 3 / 3 · Grant permission
+          </div>
+
+          {/* Headline */}
+          <div style={{ fontSize: 26, fontWeight: 500, fontFamily: "var(--serif)", fontStyle: "italic", letterSpacing: "-0.02em", lineHeight: 1.15, marginBottom: 10 }}>
+            One permission to make it real.
+          </div>
+
+          {/* Explanation */}
+          <p style={{ fontSize: 13.5, color: TEXT2, lineHeight: 1.6, marginBottom: 22, maxWidth: "46ch" }}>
+            Your {agentCount === 1 ? "agent was" : `${agentCount} agents were`} created but
+            {" "}<strong style={{ color: TEXT }}>can't execute real transactions yet</strong> — grant an ERC-7715 permission first.
+            Grant an ERC-7715 USDC budget below and they'll go live immediately.
+          </p>
+
+          {/* What this does */}
+          <div style={{
+            background: "rgba(164,110,219,0.04)", border: "1px solid rgba(164,110,219,0.14)",
+            borderRadius: 10, padding: "14px 16px", marginBottom: 22,
+            fontSize: 12, color: TEXT2, lineHeight: 1.65,
+          }}>
+            <div style={{ color: ACCENT_TX, fontWeight: 600, fontSize: 11, letterSpacing: "0.06em", textTransform: "uppercase", marginBottom: 8 }}>
+              What granting does
+            </div>
+            {[
+              "Signs a non-custodial ERC-7715 permission in MetaMask — no key transfer",
+              "Sets a USDC budget cap your agent cannot exceed",
+              "Revocable at any time in one click from the dashboard",
+              "Your wallet stays in full control",
+            ].map((line, i) => (
+              <div key={i} style={{ display: "flex", gap: 8, marginBottom: i < 3 ? 5 : 0 }}>
+                <span style={{ color: ACCENT_TX, flexShrink: 0, marginTop: 1 }}>✓</span>
+                <span>{line}</span>
+              </div>
+            ))}
+          </div>
+
+          {/* Actions */}
+          <div style={{ display: "flex", gap: 10, justifyContent: "flex-end", alignItems: "center" }}>
+            <button
+              onClick={onClose}
+              style={{
+                padding: "10px 16px", borderRadius: 8,
+                background: "transparent", border: `1px solid ${LINE_MID}`,
+                color: MID, fontSize: 12.5, cursor: "pointer",
+              }}
+            >
+              Skip for now
+            </button>
+            <button
+              onClick={onGranted}
+              style={{
+                padding: "11px 24px", borderRadius: 8,
+                background: ACCENT, color: INK, border: "none",
+                fontWeight: 700, fontSize: 13, cursor: "pointer",
+                display: "inline-flex", alignItems: "center", gap: 8,
+                boxShadow: `0 4px 18px -6px ${ACCENT_GLOW}`,
+              }}
+            >
+              🔑 Grant ERC-7715 permission →
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+//  Permission Grant Modal
+// ─────────────────────────────────────────────────────────────────────────────
+
+function PermGrantModal({ onClose, onGranted }: { onClose: () => void; onGranted: () => void }) {
+  const [budget,    setBudget]    = useState("50");
+  const [days,      setDays]      = useState(30);
+  const [periodUnit, setPeriodUnit] = useState<"hours" | "days">("days");
+  const [granting,  setGranting]  = useState(false);
+  const [revoking,  setRevoking]  = useState(false);
+  const [done,      setDone]      = useState(false);
+  const [tick,      setTick]      = useState(0);
+  // Withdrawal setup state
+  const [setupStatus, setSetupStatus] = useState<import("@/lib/web3/setupWithdrawals").ApprovalStatus>("idle");
+  const [setupDone,   setSetupDone]   = useState(false);
+
+  // Re-read permission state reactively
+  useEffect(() => {
+    const u = metamaskStore.addListener(() => setTick(x => x + 1));
+    return () => u();
+  }, []);
+
+  const existingPerm = metamaskStore.getState().permission;
+  // suppress lint warning — tick is used to force re-read
+  void tick;
+
+  const hasExisting = !!(
+    existingPerm?.permissionsContext &&
+    existingPerm.permissionsContext.length > 40 &&
+    !existingPerm.permissionsContext.includes("demo") &&
+    existingPerm.permissionsContext.startsWith("0x")
+  );
+
+  // The on-chain period is carried in days (→ days × 86400s). Hours are passed
+  // as a fraction of a day, so a 1-hour budget reset → 0.0417 days → 3600s.
+  const effectiveDays = periodUnit === "hours" ? days / 24 : days;
+  const periodLabel   = `${days} ${periodUnit === "hours" ? (days === 1 ? "hour" : "hours") : (days === 1 ? "day" : "days")}`;
+
+  const grant = async () => {
+    setGranting(true);
+    try {
+      // Grant to the FUND MANAGER (true A2A): it redelegates a scoped, on-chain-
+      // capped slice to each worker. Falls back to a flat grant only if the FM
+      // address can't be resolved.
+      const n = await metamaskStore.requestFundManagerGrant(budget, effectiveDays);
+      if (n === null) {
+        await metamaskStore.requestPermission(budget, effectiveDays, `CLOVE agent budget — ${budget} USDC / ${periodLabel}`);
+      }
+      setDone(true);
+      setTimeout(onGranted, 800);
+    } catch {
+      setGranting(false);
+    }
+  };
+
+  const clearLocal = () => {
+    metamaskStore.clearLocalPermission();
+    setDone(false);
+  };
+
+  const revokeOnChain = async () => {
+    setRevoking(true);
+    try {
+      await metamaskStore.revokeOnChain();
+    } finally {
+      setRevoking(false);
+    }
+  };
+
+  return (
+    <div
+      onClick={onClose}
+      style={{ position: "fixed", inset: 0, zIndex: 200, background: "rgba(11,12,9,0.82)", backdropFilter: "blur(12px)", display: "flex", alignItems: "center", justifyContent: "center", padding: 24 }}
+    >
+      <div
+        onClick={e => e.stopPropagation()}
+        style={{ background: INK_1, border: `1px solid ${LINE_MID}`, borderRadius: 16, padding: "28px 32px", width: 480, maxWidth: "100%", color: TEXT, display: "flex", flexDirection: "column", gap: 18 }}
+      >
+        <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between" }}>
+          <div>
+            <div style={{ fontSize: 11, color: ACCENT_TX, letterSpacing: "0.05em", textTransform: "uppercase", marginBottom: 6 }}>ERC-7715 Permission</div>
+            <div style={{ fontSize: 22, fontWeight: 500, fontFamily: "var(--serif)", fontStyle: "italic", letterSpacing: "-0.015em" }}>
+              {hasExisting ? "Permission active" : "Grant agent budget"}
+            </div>
+          </div>
+          <button onClick={onClose} style={{ background: "transparent", border: "none", cursor: "pointer", color: MID }}><X size={16} /></button>
+        </div>
+
+        {/* Current permission status banner */}
+        {hasExisting && (
+          <div style={{ padding: "12px 14px", borderRadius: 9, background: "rgba(164,110,219,0.08)", border: "1px solid rgba(164,110,219,0.25)", fontSize: 12, color: TEXT2, lineHeight: 1.6 }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 6 }}>
+              <span style={{ width: 7, height: 7, borderRadius: "50%", background: ACCENT, boxShadow: `0 0 0 3px rgba(164,110,219,0.2)` }} />
+              <span style={{ color: ACCENT_TX, fontWeight: 600, fontSize: 11.5 }}>ERC-7715 permission stored locally</span>
+            </div>
+            <div style={{ fontFamily: "monospace", fontSize: 10, color: MID, wordBreak: "break-all", marginBottom: 8 }}>
+              {existingPerm!.permissionsContext.slice(0, 22)}…{existingPerm!.permissionsContext.slice(-10)}
+            </div>
+            <div style={{ display: "flex", gap: 8 }}>
+              <button
+                onClick={clearLocal}
+                style={{ padding: "5px 10px", borderRadius: 5, background: "transparent", border: `1px solid ${LINE_MID}`, color: TEXT2, fontSize: 11, cursor: "pointer" }}
+              >
+                Clear local (keep on-chain)
+              </button>
+              <button
+                onClick={revokeOnChain}
+                disabled={revoking}
+                style={{ padding: "5px 10px", borderRadius: 5, background: "rgba(255,69,69,0.08)", border: "1px solid rgba(255,69,69,0.3)", color: "#FF8A66", fontSize: 11, cursor: revoking ? "not-allowed" : "pointer", opacity: revoking ? 0.6 : 1 }}
+              >
+                {revoking ? "Revoking…" : "Revoke on-chain"}
+              </button>
+            </div>
+          </div>
+        )}
+
+        <div style={{ fontSize: 13, color: TEXT2, lineHeight: 1.6 }}>
+          {hasExisting
+            ? "You can grant a new permission below to replace the current one, or use the buttons above to clear / revoke it."
+            : <>This creates an <strong style={{ color: TEXT }}>ERC-7715 periodic permission</strong> from your MetaMask wallet to CLOVE&apos;s <strong style={{ color: TEXT }}>Fund Manager</strong>, which splits it into scoped, on-chain-capped budgets for each worker agent. Your USDC only moves when an agent executes — revocable anytime.</>
+          }
+        </div>
+
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+          <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+            <span style={{ fontSize: 10.5, color: MID, letterSpacing: "0.06em" }}>Budget cap (USDC)</span>
+            <input
+              type="number" min="1" max="10000" value={budget}
+              onChange={e => setBudget(e.target.value)}
+              style={{ background: "rgba(20,21,16,0.04)", border: `1px solid ${LINE_MID}`, color: TEXT, fontSize: 15, fontWeight: 600, padding: "9px 11px", borderRadius: 7, outline: "none" }}
+            />
+          </div>
+          <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+            {/* Bug 3 fix: "Period (days)" was confusing — users thought it was the
+                expiry. It's the BUDGET RESET interval, not how long the permission lasts.
+                The permission itself always lasts 90 days (hardcoded in permissions.ts). */}
+            <span style={{ fontSize: 10.5, color: MID, letterSpacing: "0.06em" }}>Budget resets every</span>
+            <div style={{ display: "flex", gap: 6 }}>
+              <input
+                type="number" min="1" max={periodUnit === "hours" ? 720 : 365} value={days}
+                onChange={e => setDays(Number(e.target.value))}
+                style={{ flex: 1, minWidth: 0, background: "rgba(20,21,16,0.04)", border: `1px solid ${LINE_MID}`, color: TEXT, fontSize: 15, fontWeight: 600, padding: "9px 11px", borderRadius: 7, outline: "none" }}
+              />
+              <div style={{ display: "inline-flex", border: `1px solid ${LINE_MID}`, borderRadius: 7, overflow: "hidden" }}>
+                {(["hours", "days"] as const).map(u => (
+                  <button
+                    key={u}
+                    type="button"
+                    onClick={() => setPeriodUnit(u)}
+                    style={{
+                      padding: "9px 12px", border: "none", cursor: "pointer",
+                      background: periodUnit === u ? ACCENT : "transparent",
+                      color: periodUnit === u ? INK : MID,
+                      fontSize: 12, fontWeight: 600, letterSpacing: "0.02em",
+                    }}
+                  >
+                    {u}
+                  </button>
+                ))}
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div style={{ padding: "12px 14px", borderRadius: 9, background: "rgba(164,110,219,0.06)", border: "1px solid rgba(164,110,219,0.15)", fontSize: 11.5, color: TEXT2, lineHeight: 1.5 }}>
+          {/* Bug 3 fix: explicitly distinguish budget period from permission expiry */}
+          Fund Manager budget: <strong style={{ color: ACCENT_TX }}>{budget} USDC every {periodLabel}</strong>, split into
+          {" "}per-worker caps enforced on-chain (overspend reverts).
+          {" "}Permission valid for <strong style={{ color: TEXT }}>90 days</strong>.
+          {" "}Gas paid in USDC via 1Shot — you pay zero ETH.
+        </div>
+
+        <button
+          onClick={grant}
+          disabled={granting || done}
+          style={{
+            padding: "12px 18px", borderRadius: 9,
+            background: done ? "rgba(164,110,219,0.2)" : ACCENT,
+            color: done ? ACCENT_TX : INK,
+            border: done ? `1px solid ${ACCENT}` : "none",
+            fontWeight: 600, fontSize: 14,
+            cursor: (granting || done) ? "not-allowed" : "pointer",
+            opacity: granting ? 0.7 : 1, transition: "all .2s",
+          }}
+        >
+          {done ? "✅ Permission granted!" : granting ? "Waiting for MetaMask…" : hasExisting ? "Re-grant via MetaMask →" : "Grant via MetaMask →"}
+        </button>
+
+        {/* ── Set up withdrawals ── */}
+        <div style={{ borderTop: `1px solid ${LINE}`, paddingTop: 16 }}>
+          <div style={{ fontSize: 11.5, color: MID, marginBottom: 10, lineHeight: 1.6 }}>
+            <strong style={{ color: TEXT2 }}>Enable autonomous withdrawals</strong>
+            {" "}— approve the CLOVE contract once to let agents automatically exit positions.
+            Covers all 5 protocols: Aave, Morpho, Uniswap, Aerodrome, Lido.
+          </div>
+
+          {!setupDone ? (
+            <button
+              onClick={async () => {
+                const { setupWithdrawals } = await import("@/lib/web3/setupWithdrawals");
+                const mm = metamaskStore.getState();
+                if (!mm.userAddress) { alert("Connect MetaMask first"); return; }
+                try {
+                  await setupWithdrawals(mm.userAddress as `0x${string}`, (s) => {
+                    setSetupStatus(s);
+                    if (s === "done") setSetupDone(true);
+                  });
+                } catch (e) {
+                  setSetupStatus({ error: e instanceof Error ? e.message : String(e) });
+                }
+              }}
+              disabled={setupStatus === "pending"}
+              style={{
+                width: "100%", padding: "10px 14px", borderRadius: 9,
+                background: "rgba(164,110,219,0.07)",
+                border: `1px solid rgba(164,110,219,0.3)`,
+                color: ACCENT_TX, fontWeight: 600, fontSize: 13,
+                cursor: setupStatus === "pending" ? "wait" : "pointer",
+                display: "flex", alignItems: "center", justifyContent: "center", gap: 8,
+              }}
+            >
+              {setupStatus === "pending"
+                ? "⏳ Waiting for MetaMask… (1 transaction)"
+                : typeof setupStatus === "object" && "error" in setupStatus
+                  ? `⚠ ${setupStatus.error.slice(0, 50)}`
+                  : "🔓 Set up withdrawals — 1 click, 5 protocols"}
+            </button>
+          ) : (
+            <div style={{ padding: "10px 14px", borderRadius: 9, background: "rgba(164,110,219,0.07)", border: `1px solid rgba(164,110,219,0.2)`, fontSize: 12.5, color: ACCENT_TX, textAlign: "center" }}>
+              ✅ Withdrawals enabled — all 5 protocols approved
+            </div>
+          )}
+
+          <div style={{ marginTop: 8, fontSize: 10.5, color: MID, lineHeight: 1.5 }}>
+            Each approval is a standard MetaMask transaction (no ETH cost on Base L2 — gas is ~$0.001 total).
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+//  Bits: Brand, NavItem, ConnectChip, EmptyState
+// ─────────────────────────────────────────────────────────────────────────────
+
+function Brand() {
+  return (
+    <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "0 6px" }}>
+      <span style={{ display: "inline-flex", width: 28, height: 28, alignItems: "center", justifyContent: "center", borderRadius: 7, background: INK_1 }}>
+        <svg width="16" height="16" viewBox="0 0 24 24">
+          <circle cx="8"  cy="8"  r="3.5" fill={ACCENT} />
+          <circle cx="16" cy="8"  r="3.5" fill={ACCENT} opacity="0.85" />
+          <circle cx="8"  cy="16" r="3.5" fill={ACCENT} opacity="0.85" />
+          <circle cx="16" cy="16" r="3.5" fill={ACCENT} opacity="0.7" />
+        </svg>
+      </span>
+      <span style={{ fontSize: 17, fontWeight: 600, color: TEXT, letterSpacing: "-0.015em" }}>clove</span>
+      <span style={{ marginLeft: "auto", fontSize: 9, color: MID, letterSpacing: "0.06em", textTransform: "uppercase", fontWeight: 500 }}>Beta</span>
+    </div>
+  );
+}
+
+function NavItem({ icon: Icon, label, active, count, onClick }: { icon: React.ComponentType<{ size?: number }>; label: string; active?: boolean; count?: number | string; onClick?: () => void }) {
+  const Tag = onClick ? "button" : "a";
+  return (
+    <Tag
+      onClick={onClick}
+      href={onClick ? undefined : "#"}
+      style={{
+        display: "flex", alignItems: "center", gap: 11,
+        padding: "8px 11px", borderRadius: 7,
+        background: active ? "rgba(20,21,16,0.06)" : "transparent",
+        color: active ? TEXT : TEXT2,
+        fontSize: 13, letterSpacing: "-0.005em",
+        textDecoration: "none", textAlign: "left",
+        border: "none", cursor: onClick ? "pointer" : "default",
+        fontFamily: "inherit",
+        transition: "background .15s, color .15s",
+      }}
+    >
+      <Icon size={14} />
+      <span>{label}</span>
+      {count !== undefined && (
+        <span style={{ marginLeft: "auto", fontSize: 11, color: MID, fontVariantNumeric: "tabular-nums" }}>{count}</span>
+      )}
+    </Tag>
+  );
+}
+
+function ConnectChip() {
+  const [, setTick] = useState(0);
+  const [open, setOpen] = useState(false);
+  const privy = usePrivy();
+  useEffect(() => {
+    const u = metamaskStore.addListener(() => setTick(x => x + 1));
+    return () => u();
+  }, []);
+  const addr = metamaskStore.getState().userAddress;
+
+  const handleClick = () => {
+    if (addr) { setOpen(o => !o); return; }
+    if (privy.ready) {
+      void privy.login();
+    } else {
+      void metamaskStore.connect();
+    }
+  };
+
+  const handleDisconnect = () => {
+    if (privy.ready && privy.authenticated) {
+      void privy.logout();
+    }
+    metamaskStore.disconnect();
+    setOpen(false);
+  };
+
+  return (
+    <div style={{ position: "relative" }}>
+      <button
+        onClick={handleClick}
+        title={addr ? "Account options" : "Connect wallet"}
+        style={{
+          display: "inline-flex", alignItems: "center", gap: 7,
+          padding: "6px 12px", borderRadius: 7,
+          background: addr ? "transparent" : ACCENT,
+          border: addr ? `1px solid ${LINE_MID}` : "none",
+          color: addr ? TEXT : INK, fontSize: 11.5, letterSpacing: "0.02em",
+          fontVariantNumeric: "tabular-nums", fontWeight: 600,
+          cursor: "pointer",
+        }}
+      >
+        <BaseLogo size={14} />
+        {addr ? `${addr.slice(0, 6)}…${addr.slice(-4)}` : "Connect"}
+        {!addr && <span style={{ fontSize: 10, fontWeight: 500, opacity: 0.7 }}>· Base</span>}
+        {addr && <ChevronDown size={11} style={{ opacity: 0.6 }} />}
+      </button>
+
+      {addr && open && (
+        <>
+          <div onClick={() => setOpen(false)} style={{ position: "fixed", inset: 0, zIndex: 40 }} />
+          <div
+            style={{
+              position: "absolute", top: "100%", right: 0, marginTop: 6, zIndex: 41,
+              minWidth: 180, background: INK_1, border: `1px solid ${LINE_MID}`, borderRadius: 9,
+              padding: 6, boxShadow: "0 12px 30px -10px rgba(0,0,0,0.6)",
+            }}
+          >
+            <div style={{ padding: "5px 8px", fontSize: 11, color: MID, fontVariantNumeric: "tabular-nums" }}>
+              {addr.slice(0, 10)}…{addr.slice(-8)}
+            </div>
+            <button
+              onClick={handleDisconnect}
+              style={{
+                display: "flex", width: "100%", alignItems: "center", gap: 7,
+                padding: "7px 8px", borderRadius: 7, border: "none", cursor: "pointer",
+                background: "transparent", color: "#FF8A66", fontSize: 12, textAlign: "left",
+              }}
+              onMouseEnter={(e) => { e.currentTarget.style.background = "rgba(255,138,102,0.08)"; }}
+              onMouseLeave={(e) => { e.currentTarget.style.background = "transparent"; }}
+            >
+              Disconnect wallet
+            </button>
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
+
+function TelegramLinkChip() {
+  const [, setTick] = useState(0);
+  const [linked, setLinked] = useState(false);
+  const [label, setLabel] = useState("Telegram");
+  const [busy, setBusy] = useState(false);
+
+  useEffect(() => {
+    const u = metamaskStore.addListener(() => setTick(x => x + 1));
+    return () => u();
+  }, []);
+
+  const wallet = metamaskStore.getState().userAddress;
+
+  useEffect(() => {
+    if (!wallet) {
+      return;
+    }
+    let cancelled = false;
+    fetch(`/api/telegram/status?wallet=${encodeURIComponent(wallet)}`)
+      .then(r => r.ok ? r.json() : null)
+      .then((d: { linked?: boolean; account?: { username?: string; firstName?: string } } | null) => {
+        if (cancelled) return;
+        setLinked(!!d?.linked);
+        setLabel(d?.linked ? (d.account?.username ? `@${d.account.username}` : d.account?.firstName ?? "Linked") : "Telegram");
+      })
+      .catch(() => {});
+    return () => { cancelled = true; };
+  }, [wallet]);
+
+  const connect = async () => {
+    if (!wallet || busy) return;
+    setBusy(true);
+    try {
+      const res = await fetch("/api/telegram/link-token", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ walletAddress: wallet }),
+      });
+      const data = await res.json() as { deepLink?: string | null; token?: string; error?: string };
+      if (!res.ok) throw new Error(data.error ?? `HTTP ${res.status}`);
+      if (data.deepLink) {
+        window.open(data.deepLink, "_blank", "noopener,noreferrer");
+      } else if (data.token) {
+        await navigator.clipboard?.writeText(`/start ${data.token}`);
+        setLabel("Token copied");
+      }
+    } catch {
+      setLabel("Link failed");
+      setTimeout(() => setLabel(linked ? "Linked" : "Telegram"), 1800);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const unlink = async () => {
+    if (!wallet || busy) return;
+    setBusy(true);
+    try {
+      await fetch(`/api/telegram/link?wallet=${encodeURIComponent(wallet)}`, { method: "DELETE" });
+      setLinked(false);
+      setLabel("Telegram");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const activeLinked = !!wallet && linked;
+  const displayLabel = wallet ? label : "Telegram";
+
+  return (
+    <button
+      onClick={() => { void (activeLinked ? unlink() : connect()); }}
+      disabled={!wallet || busy}
+      title={activeLinked ? "Unlink Telegram" : "Connect Telegram"}
+      style={{
+        display: "inline-flex", alignItems: "center", gap: 7,
+        padding: "5px 9px", borderRadius: 6,
+        background: activeLinked ? "rgba(164,110,219,0.08)" : "transparent",
+        border: `1px solid ${activeLinked ? "rgba(164,110,219,0.18)" : "transparent"}`,
+        color: activeLinked ? ACCENT_TX : MID_2,
+        fontSize: 11.5, letterSpacing: "0.02em",
+        cursor: wallet && !busy ? "pointer" : "not-allowed",
+        opacity: wallet ? 1 : 0.55,
+      }}
+    >
+      <span style={{ width: 5, height: 5, borderRadius: "50%", background: activeLinked ? ACCENT : MID }} />
+      {busy ? "..." : displayLabel}
+    </button>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+//  Create Agent Modal (Fix 3B: ERC-7715 grant section)
+// ─────────────────────────────────────────────────────────────────────────────
+
+function CreateAgentModal({ onClose, onCreated }: { onClose: () => void; onCreated: () => Promise<void> | void }) {
+  const [name,        setName]        = useState("Yield Hunter");
+  const [goal,        setGoal]        = useState("Deposit my USDC into the safest Base protocol above 8% APY. Hold otherwise. Notify me on Telegram.");
+  const [budget,      setBudget]      = useState("10");
+  const [mediaPolicy, setMediaPolicy] = useState<MediaPolicy>("milestones");
+  const [submitting,  setSubmitting]  = useState(false);
+
+  // Fix 3B: permission grant state
+  const [grantOpen,    setGrantOpen]    = useState(false);
+  const [granting,     setGranting]     = useState(false);
+  const [grantedPerm,  setGrantedPerm]  = useState(() => metamaskStore.getState().permission);
+  const [, setPermTick] = useState(0);
+
+  useEffect(() => {
+    const u = metamaskStore.addListener(() => {
+      setPermTick(x => x + 1);
+      setGrantedPerm(metamaskStore.getState().permission);
+    });
+    return () => u();
+  }, []);
+
+  const grantPermission = async () => {
+    setGranting(true);
+    try {
+      await metamaskStore.requestPermission(budget, 30, goal.slice(0, 60));
+      setGrantedPerm(metamaskStore.getState().permission);
+    } finally {
+      setGranting(false);
+    }
+  };
+
+  const submit = async () => {
+    const wallet = metamaskStore.getState().userAddress;
+    if (!wallet) { onClose(); return; }
+    setSubmitting(true);
+    try {
+      const res = await fetch("/api/agent", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ walletAddress: wallet, name, goal, budgetUsdc: budget, mediaPolicy }),
+      });
+      if (res.ok) {
+        const created = (await res.json()) as { agent: Agent };
+        const newId = created.agent?.id;
+
+        // Fix 3B: if permission was granted, bind it immediately
+        const perm = metamaskStore.getState().permission;
+        if (newId && perm && perm.permissionsContext) {
+          await fetch(`/api/agent/${newId}/delegate-from-user`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              permissionsContext:        perm.permissionsContext,
+              delegationManagerAddress:  perm.delegationManager,
+              delegationHash:            "0xpending",
+              capUsdc:                   budget,
+            }),
+          }).catch(() => {});
+        }
+      }
+      await onCreated();
+    } finally { setSubmitting(false); }
+  };
+
+  return (
+    <div
+      onClick={onClose}
+      style={{
+        position: "fixed", inset: 0, zIndex: 100,
+        background: "rgba(11,12,9,0.7)", backdropFilter: "blur(8px)",
+        display: "flex", alignItems: "center", justifyContent: "center", padding: 24,
+      }}
+    >
+      <div
+        onClick={(e) => e.stopPropagation()}
+        style={{
+          background: INK_1, border: `1px solid ${LINE_MID}`, borderRadius: 14,
+          padding: "28px 32px", width: 480, maxWidth: "100%", color: TEXT,
+          display: "flex", flexDirection: "column", gap: 18,
+          maxHeight: "90vh", overflowY: "auto",
+        }}
+      >
+        <div>
+          <div style={{ fontSize: 11, color: MID, letterSpacing: "0.05em", textTransform: "uppercase" }}>New agent</div>
+          <div style={{ fontSize: 22, fontWeight: 500, marginTop: 6, fontFamily: "var(--serif)", fontStyle: "italic", letterSpacing: "-0.015em" }}>
+            Give it a goal.
+          </div>
+        </div>
+
+        <Field label="Name">
+          <input type="text" value={name} onChange={(e) => setName(e.target.value)} style={inputStyle()} />
+        </Field>
+
+        <Field label="Goal (plain English)">
+          <textarea rows={3} value={goal} onChange={(e) => setGoal(e.target.value)} style={{ ...inputStyle(), resize: "none", lineHeight: 1.45 }} />
+        </Field>
+
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14 }}>
+          <Field label="Budget (USDC)">
+            <input type="text" inputMode="decimal" value={budget} onChange={(e) => setBudget(e.target.value)} style={inputStyle()} />
+          </Field>
+          <Field label="Media policy">
+            <select value={mediaPolicy} onChange={(e) => setMediaPolicy(e.target.value as MediaPolicy)} style={inputStyle()}>
+              <option value="off">Off</option>
+              <option value="milestones">Milestones (recommended)</option>
+              <option value="daily">Daily digest</option>
+              <option value="every-run">Every run</option>
+            </select>
+          </Field>
+        </div>
+
+        {/* Fix 3B: ERC-7715 grant section */}
+        <div style={{ borderRadius: 9, border: `1px solid ${LINE_MID}`, overflow: "hidden" }}>
+          <button
+            onClick={() => setGrantOpen(x => !x)}
+            style={{
+              width: "100%", display: "flex", alignItems: "center", justifyContent: "space-between",
+              padding: "10px 14px", background: "rgba(20,21,16,0.03)", border: "none", cursor: "pointer",
+              color: TEXT2, fontSize: 12.5, fontFamily: "var(--sans)", textAlign: "left",
+            }}
+          >
+            <span style={{ display: "flex", alignItems: "center", gap: 7 }}>
+              <Shield size={12} style={{ color: grantedPerm ? ACCENT_TX : MID }} />
+              Grant ERC-7715 delegation <span style={{ fontSize: 10.5, color: MID }}>(optional — enables real execution)</span>
+            </span>
+            <ChevronDown size={12} style={{ transform: grantOpen ? "rotate(180deg)" : "rotate(0)", transition: "transform .15s" }} />
+          </button>
+
+          {grantOpen && (
+            <div style={{ padding: "14px 16px", borderTop: `1px solid ${LINE}`, display: "flex", flexDirection: "column", gap: 10 }}>
+              <div style={{ fontSize: 12.5, color: TEXT2, lineHeight: 1.5 }}>
+                Grant MetaMask permission: <strong style={{ color: TEXT }}>{budget} USDC / 30 days</strong>
+                <br />
+                This lets CLOVE spend on your behalf, on-chain, with revocation rights.
+              </div>
+
+              <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                <button
+                  onClick={grantPermission}
+                  disabled={granting || !!grantedPerm}
+                  style={{
+                    padding: "8px 14px", borderRadius: 7,
+                    background: grantedPerm ? ACCENT_SOFT : ACCENT, color: grantedPerm ? ACCENT_TX : INK,
+                    border: grantedPerm ? `1px solid ${ACCENT}44` : "none",
+                    fontSize: 12.5, fontWeight: 600, cursor: granting || grantedPerm ? "not-allowed" : "pointer",
+                    opacity: granting ? 0.6 : 1,
+                  }}
+                >
+                  {granting ? "Requesting…" : grantedPerm ? "✓ Permission granted" : "Grant via MetaMask"}
+                </button>
+                <span style={{ fontSize: 10.5, color: grantedPerm ? ACCENT_TX : MID }}>
+                  {grantedPerm
+                    ? `● Active · expires ${new Date(grantedPerm.expiresAt * 1000).toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" })}`
+                    : "● Not granted"}
+                </span>
+              </div>
+            </div>
+          )}
+        </div>
+
+        <div style={{ display: "flex", justifyContent: "flex-end", gap: 10, marginTop: 6 }}>
+          <button
+            onClick={onClose}
+            style={{ padding: "9px 14px", borderRadius: 7, background: "transparent", border: `1px solid ${LINE_MID}`, color: TEXT2, fontSize: 12.5, cursor: "pointer" }}
+          >
+            Cancel
+          </button>
+          <button
+            onClick={submit}
+            disabled={submitting || !name.trim() || !goal.trim()}
+            style={{
+              padding: "9px 16px", borderRadius: 7,
+              background: ACCENT, color: INK, border: "none",
+              fontSize: 12.5, fontWeight: 600, cursor: submitting ? "not-allowed" : "pointer",
+              opacity: submitting ? 0.6 : 1,
+            }}
+          >
+            {submitting ? "Creating…" : "Create agent"}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+//  Delegate Modal (Fix 2: real delegation step 0)
+// ─────────────────────────────────────────────────────────────────────────────
+
+function DelegateModal({
+  parent, candidates, onClose, onDone,
+}: {
+  parent:     Agent;
+  candidates: Agent[];
+  onClose:    () => void;
+  onDone:     () => Promise<void> | void;
+}) {
+  const [childId,     setChildId]     = useState(candidates[0]?.id ?? "");
+  const [cap,         setCap]         = useState("1");
+  const [submitting,  setSubmitting]  = useState(false);
+  const [error,       setError]       = useState<string | null>(null);
+
+  // Fix 2: step 0 — grant permission if parent has no real delegation
+  const [granting,    setGranting]    = useState(false);
+  const [localPerm,   setLocalPerm]   = useState(() => metamaskStore.getState().permission);
+  const parentIsReal  = hasRealDelegation(parent);
+
+  useEffect(() => {
+    const u = metamaskStore.addListener(() => setLocalPerm(metamaskStore.getState().permission));
+    return () => u();
+  }, []);
+
+  const parentCap = Number.parseFloat(parent.delegationCap ?? parent.budgetUsdc) || 0;
+
+  const grantAndBind = async () => {
+    setGranting(true);
+    try {
+      await metamaskStore.requestPermission(parent.budgetUsdc, 30, parent.goal.slice(0, 60));
+      const perm = metamaskStore.getState().permission;
+      if (perm) {
+        await fetch(`/api/agent/${parent.id}/delegate-from-user`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            permissionsContext:        perm.permissionsContext,
+            delegationManagerAddress:  perm.delegationManager,
+            delegationHash:            "0xpending",
+            capUsdc:                   parent.budgetUsdc,
+          }),
+        });
+      }
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setGranting(false);
+    }
+  };
+
+  const submit = async () => {
+    if (!childId) return;
+    setSubmitting(true);
+    setError(null);
+    try {
+      const res = await fetch(`/api/agent/${parent.id}/delegate`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ childAgentId: childId, capUsdc: cap }),
+      });
+      if (!res.ok) {
+        const j = await res.json().catch(() => ({})) as { error?: string };
+        setError(j.error ?? `HTTP ${res.status}`);
+      } else {
+        await onDone();
+      }
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally { setSubmitting(false); }
+  };
+
+  const delegationBadge = parentIsReal || (localPerm && localPerm.permissionsContext)
+    ? { label: "● real on-chain", color: ACCENT_TX }
+    : { label: "● needs permission — grant first", color: MID };
+
+  if (candidates.length === 0) {
+    return (
+      <div
+        onClick={onClose}
+        style={{ position: "fixed", inset: 0, zIndex: 100, background: "rgba(11,12,9,0.7)", backdropFilter: "blur(8px)", display: "flex", alignItems: "center", justifyContent: "center", padding: 24 }}
+      >
+        <div
+          onClick={(e) => e.stopPropagation()}
+          style={{ background: INK_1, border: `1px solid ${LINE_MID}`, borderRadius: 14, padding: "28px 32px", width: 440, color: TEXT, display: "flex", flexDirection: "column", gap: 12 }}
+        >
+          <div style={{ fontSize: 22, fontWeight: 500, fontFamily: "var(--serif)", fontStyle: "italic" }}>No agents to delegate to.</div>
+          <div style={{ fontSize: 13, color: TEXT2, lineHeight: 1.5 }}>
+            Create another agent first, then come back here to grant it a sub-delegation of <strong>{parent.name}</strong>&apos;s budget.
+          </div>
+          <button onClick={onClose} style={{ marginTop: 12, padding: "9px 14px", borderRadius: 7, background: ACCENT, color: INK, border: "none", fontWeight: 600, cursor: "pointer" }}>
+            Got it
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div
+      onClick={onClose}
+      style={{ position: "fixed", inset: 0, zIndex: 100, background: "rgba(11,12,9,0.7)", backdropFilter: "blur(8px)", display: "flex", alignItems: "center", justifyContent: "center", padding: 24 }}
+    >
+      <div
+        onClick={(e) => e.stopPropagation()}
+        style={{
+          background: INK_1, border: `1px solid ${LINE_MID}`, borderRadius: 14,
+          padding: "28px 32px", width: 520, maxWidth: "100%", color: TEXT,
+          display: "flex", flexDirection: "column", gap: 18,
+          maxHeight: "90vh", overflowY: "auto",
+        }}
+      >
+        <div>
+          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+            <div style={{ fontSize: 11, color: MID, letterSpacing: "0.05em", textTransform: "uppercase" }}>Agent-to-agent delegation</div>
+            <span style={{ fontSize: 10, color: delegationBadge.color, letterSpacing: "0.04em" }}>{delegationBadge.label}</span>
+          </div>
+          <div style={{ fontSize: 22, fontWeight: 500, marginTop: 6, fontFamily: "var(--serif)", fontStyle: "italic", letterSpacing: "-0.015em" }}>
+            {parent.name} delegates to…
+          </div>
+          <div style={{ fontSize: 12, color: TEXT2, marginTop: 4 }}>
+            Sub-delegates a slice of {parent.name}&apos;s {parentCap} USDC budget to a child agent.
+          </div>
+        </div>
+
+        {/* Fix 2: Step 0 — if no real context, offer grant */}
+        {!parentIsReal && (
+          <div style={{
+            padding: "12px 14px", borderRadius: 9, background: "rgba(164,110,219,0.06)",
+            border: `1px solid rgba(164,110,219,0.18)`,
+          }}>
+            <div style={{ fontSize: 12, color: TEXT2, marginBottom: 10, lineHeight: 1.5 }}>
+              Parent agent needs a real delegation. Grant ERC-7715 permission first to enable on-chain sub-delegation.
+            </div>
+            <button
+              onClick={grantAndBind}
+              disabled={granting || !!localPerm}
+              style={{
+                padding: "7px 14px", borderRadius: 7,
+                background: localPerm ? ACCENT_SOFT : ACCENT,
+                color: localPerm ? ACCENT_TX : INK,
+                border: localPerm ? `1px solid ${ACCENT}44` : "none",
+                fontSize: 12, fontWeight: 600, cursor: granting || localPerm ? "not-allowed" : "pointer",
+                opacity: granting ? 0.6 : 1,
+              }}
+            >
+              {granting ? "Requesting…" : localPerm ? "✓ Permission granted" : "Grant permission"}
+            </button>
+          </div>
+        )}
+
+        <Field label="Child agent">
+          <select value={childId} onChange={(e) => setChildId(e.target.value)} style={inputStyle()}>
+            {candidates.map((c) => (
+              <option key={c.id} value={c.id}>
+                {c.name} {c.delegationStatus === "active" ? "(already delegated)" : ""}
+              </option>
+            ))}
+          </select>
+        </Field>
+
+        <Field label={`Cap (max ${parentCap} USDC)`}>
+          <input type="text" inputMode="decimal" value={cap} onChange={(e) => setCap(e.target.value)} style={inputStyle()} />
+        </Field>
+
+        {error && (
+          <div style={{ fontSize: 12, color: "#FF8A66", padding: "8px 12px", border: "1px solid rgba(255,138,102,0.3)", borderRadius: 7, background: "rgba(255,138,102,0.06)" }}>
+            {error}
+          </div>
+        )}
+
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: 6 }}>
+          <div style={{ fontSize: 11, color: MID, letterSpacing: "0.04em" }}>via 1Shot redelegate · revocable on-chain</div>
+          <div style={{ display: "flex", gap: 10 }}>
+            <button
+              onClick={onClose}
+              style={{ padding: "9px 14px", borderRadius: 7, background: "transparent", border: `1px solid ${LINE_MID}`, color: TEXT2, fontSize: 12.5, cursor: "pointer" }}
+            >
+              Cancel
+            </button>
+            <button
+              onClick={submit}
+              disabled={submitting || !childId || !cap}
+              style={{
+                padding: "9px 16px", borderRadius: 7, background: ACCENT, color: INK, border: "none",
+                fontSize: 12.5, fontWeight: 600, cursor: submitting ? "not-allowed" : "pointer", opacity: submitting ? 0.6 : 1,
+              }}
+            >
+              {submitting ? "Delegating…" : "Delegate"}
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+//  Shared form helpers
+// ─────────────────────────────────────────────────────────────────────────────
+
+function Field({ label, children }: { label: string; children: React.ReactNode }) {
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+      <span style={{ fontSize: 10.5, color: MID, letterSpacing: "0.06em" }}>{label}</span>
+      {children}
+    </div>
+  );
+}
+
+function inputStyle(): React.CSSProperties {
+  return {
+    background: "rgba(20,21,16,0.04)",
+    border: `1px solid ${LINE_MID}`,
+    color: TEXT,
+    fontSize: 13,
+    padding: "9px 11px",
+    borderRadius: 7,
+    outline: "none",
+    fontFamily: "var(--sans)",
+    letterSpacing: "-0.005em",
+  };
+}

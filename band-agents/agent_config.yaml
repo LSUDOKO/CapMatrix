@@ -1,0 +1,12 @@
+executor:
+  agent_id: 2903f123-4931-41b5-9c1b-7ababb08ce64
+  api_key: band_a_1781762677_TGvniMIOr4gWAOkbSIQzR6F6IINngNRG
+orchestrator:
+  agent_id: 683f0651-d141-45f1-bc70-79e7d54c3cdd
+  api_key: band_a_1781762676_baIfi95eKL9s_sylsjrZ6dect6bl8SYU
+risk_monitor:
+  agent_id: f2b60d13-16fa-498b-a36c-4cf8002f1ecb
+  api_key: band_a_1781762676_OoRmiwOIO-PKjBaWrNAA2eNKnXgO88f7
+scout:
+  agent_id: 67595fac-f0b8-4f58-9d52-966d0535f06e
+  api_key: band_a_1781762676_Nn0JDnXFn-JpTSTrTAw4-h1fonrBnHaQ

@@ -1,0 +1,69 @@
+<svg width="920" height="572" viewBox="0 0 920 572" xmlns="http://www.w3.org/2000/svg" font-family="'Segoe UI', system-ui, -apple-system, sans-serif" role="img" aria-label="CLOVE architecture: one ERC-7715 grant to a Fund Manager that splits an on-chain-capped budget across worker agents, redeemed via the 1Shot relayer onto Base mainnet.">
+  <defs>
+    <marker id="ar" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+      <path d="M2 1 L8 5 L2 9" fill="none" stroke="#52573f" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
+    </marker>
+  </defs>
+
+  <rect x="0" y="0" width="920" height="572" rx="20" fill="#101109"/>
+
+  <!-- You -->
+  <rect x="360" y="28" width="200" height="46" rx="10" fill="#181a14" stroke="#2b2e22"/>
+  <text x="460" y="56" text-anchor="middle" fill="#eae8dd" font-size="15" font-weight="600">You</text>
+
+  <line x1="460" y1="74" x2="460" y2="102" stroke="#52573f" stroke-width="1.6" marker-end="url(#ar)"/>
+
+  <!-- Grant -->
+  <rect x="300" y="104" width="320" height="56" rx="10" fill="#181a14" stroke="#2b2e22"/>
+  <text x="460" y="128" text-anchor="middle" fill="#eae8dd" font-size="15" font-weight="600">One ERC-7715 grant</text>
+  <text x="460" y="147" text-anchor="middle" fill="#9a9a8e" font-size="12.5">capped &#183; revocable &#183; non-custodial</text>
+
+  <line x1="460" y1="160" x2="460" y2="188" stroke="#52573f" stroke-width="1.6" marker-end="url(#ar)"/>
+  <rect x="498" y="160" width="92" height="22" rx="11" fill="#1b1f10" stroke="#3c4a1a"/>
+  <text x="544" y="175" text-anchor="middle" fill="#c8ff3d" font-size="11.5" font-weight="600">&#8804; 2 USDC</text>
+
+  <!-- Fund Manager -->
+  <rect x="318" y="190" width="284" height="62" rx="10" fill="#15180f" stroke="#3c4a1a"/>
+  <text x="460" y="216" text-anchor="middle" fill="#c8ff3d" font-size="15" font-weight="600">Fund Manager</text>
+  <text x="460" y="235" text-anchor="middle" fill="#9a9a8e" font-size="12.5">Venice splits budget into capped workers</text>
+
+  <text x="460" y="278" text-anchor="middle" fill="#7c7e6e" font-size="12" font-style="italic">authority only narrows &#8595; &#183; each worker gets its own on-chain cap</text>
+
+  <!-- fan connectors -->
+  <line x1="460" y1="252" x2="130" y2="300" stroke="#52573f" stroke-width="1.4" marker-end="url(#ar)"/>
+  <line x1="460" y1="252" x2="350" y2="300" stroke="#52573f" stroke-width="1.4" marker-end="url(#ar)"/>
+  <line x1="460" y1="252" x2="570" y2="300" stroke="#52573f" stroke-width="1.4" marker-end="url(#ar)"/>
+  <line x1="460" y1="252" x2="790" y2="300" stroke="#52573f" stroke-width="1.4" marker-end="url(#ar)"/>
+
+  <!-- workers -->
+  <rect x="30" y="302" width="200" height="64" rx="10" fill="#181a14" stroke="#2b2e22"/>
+  <text x="130" y="328" text-anchor="middle" fill="#eae8dd" font-size="14" font-weight="600">Yield Scouts</text>
+  <text x="130" y="347" text-anchor="middle" fill="#9a9a8e" font-size="12">read-only, live APYs</text>
+
+  <rect x="250" y="302" width="200" height="64" rx="10" fill="#181a14" stroke="#2b2e22"/>
+  <text x="350" y="328" text-anchor="middle" fill="#eae8dd" font-size="14" font-weight="600">Convergence Analyzer</text>
+  <text x="350" y="347" text-anchor="middle" fill="#9a9a8e" font-size="12">whale + market signals</text>
+
+  <rect x="470" y="302" width="200" height="64" rx="10" fill="#181a14" stroke="#2b2e22"/>
+  <text x="570" y="328" text-anchor="middle" fill="#eae8dd" font-size="14" font-weight="600">Risk Monitor</text>
+  <text x="570" y="347" text-anchor="middle" fill="#9a9a8e" font-size="12">veto &#183; shrink &#183; revoke</text>
+
+  <rect x="690" y="302" width="200" height="64" rx="10" fill="#15180f" stroke="#3c4a1a"/>
+  <text x="790" y="328" text-anchor="middle" fill="#c8ff3d" font-size="14" font-weight="600">Executor</text>
+  <text x="790" y="347" text-anchor="middle" fill="#9a9a8e" font-size="12">spends, on-chain capped</text>
+
+  <!-- executor to relayer -->
+  <path d="M790 366 L790 388 L612 388 L612 406" fill="none" stroke="#52573f" stroke-width="1.6" marker-end="url(#ar)"/>
+
+  <!-- relayer -->
+  <rect x="300" y="408" width="320" height="56" rx="10" fill="#15180f" stroke="#3c4a1a"/>
+  <text x="460" y="432" text-anchor="middle" fill="#c8ff3d" font-size="15" font-weight="600">1Shot Public Relayer</text>
+  <text x="460" y="451" text-anchor="middle" fill="#9a9a8e" font-size="12.5">gas paid in USDC &#8212; zero ETH</text>
+
+  <line x1="460" y1="464" x2="460" y2="492" stroke="#52573f" stroke-width="1.6" marker-end="url(#ar)"/>
+
+  <!-- base -->
+  <rect x="210" y="494" width="500" height="56" rx="10" fill="#181a14" stroke="#2b2e22"/>
+  <text x="460" y="518" text-anchor="middle" fill="#eae8dd" font-size="15" font-weight="600">Base mainnet</text>
+  <text x="460" y="537" text-anchor="middle" fill="#9a9a8e" font-size="12.5">Morpho &#183; Aave &#183; Uniswap &#183; Aerodrome &#183; Lido</text>
+</svg>

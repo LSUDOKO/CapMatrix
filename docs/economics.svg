@@ -1,0 +1,41 @@
+<svg width="920" height="392" viewBox="0 0 920 392" xmlns="http://www.w3.org/2000/svg" font-family="'Segoe UI', system-ui, -apple-system, sans-serif" role="img" aria-label="CLOVE economics: three revenue streams (performance fee, execution spread, premium tiers) on top of a non-custodial, fully autonomous cost base.">
+  <rect x="0" y="0" width="920" height="392" rx="20" fill="#101109"/>
+
+  <text x="40" y="50" fill="#c8ff3d" font-size="17" font-weight="600">How CLOVE makes money</text>
+  <text x="40" y="72" fill="#9a9a8e" font-size="13">Three revenue streams &#8212; all collected in USDC, none requiring custody of user funds.</text>
+
+  <!-- Performance fee -->
+  <rect x="40" y="96" width="260" height="168" rx="12" fill="#15180f" stroke="#3c4a1a"/>
+  <text x="60" y="126" fill="#c8ff3d" font-size="15" font-weight="600">Performance fee</text>
+  <text x="60" y="152" fill="#cfcdbf" font-size="13">10&#8211;20% of yield earned,</text>
+  <text x="60" y="172" fill="#cfcdbf" font-size="13">charged only on real gains.</text>
+  <text x="60" y="200" fill="#9a9a8e" font-size="12.5">Billed through an extra</text>
+  <text x="60" y="218" fill="#9a9a8e" font-size="12.5">capped delegation hop &#8212;</text>
+  <text x="60" y="236" fill="#9a9a8e" font-size="12.5">so even billing is</text>
+  <text x="60" y="254" fill="#9a9a8e" font-size="12.5">trust-minimized.</text>
+
+  <!-- Execution spread -->
+  <rect x="330" y="96" width="260" height="168" rx="12" fill="#181a14" stroke="#2b2e22"/>
+  <text x="350" y="126" fill="#eae8dd" font-size="15" font-weight="600">Execution spread</text>
+  <text x="350" y="152" fill="#cfcdbf" font-size="13">A thin USDC fee on every</text>
+  <text x="350" y="172" fill="#cfcdbf" font-size="13">agent execution.</text>
+  <text x="350" y="200" fill="#9a9a8e" font-size="12.5">Rides the same relayer</text>
+  <text x="350" y="218" fill="#9a9a8e" font-size="12.5">redemption users already</text>
+  <text x="350" y="236" fill="#9a9a8e" font-size="12.5">pay. Scales with activity,</text>
+  <text x="350" y="254" fill="#9a9a8e" font-size="12.5">not headcount.</text>
+
+  <!-- Premium tiers -->
+  <rect x="620" y="96" width="260" height="168" rx="12" fill="#181a14" stroke="#2b2e22"/>
+  <text x="640" y="126" fill="#eae8dd" font-size="15" font-weight="600">Premium tiers</text>
+  <text x="640" y="152" fill="#cfcdbf" font-size="13">Pro subscription unlocks:</text>
+  <text x="640" y="178" fill="#9a9a8e" font-size="12.5">&#183; more concurrent agents</text>
+  <text x="640" y="196" fill="#9a9a8e" font-size="12.5">&#183; minute-level schedules</text>
+  <text x="640" y="214" fill="#9a9a8e" font-size="12.5">&#183; copy-trade desk</text>
+  <text x="640" y="232" fill="#9a9a8e" font-size="12.5">&#183; priority relayer lane</text>
+
+  <!-- margin band -->
+  <rect x="40" y="288" width="840" height="80" rx="12" fill="#15180f" stroke="#3c4a1a"/>
+  <text x="60" y="318" fill="#c8ff3d" font-size="14" font-weight="600">Why the margins are high</text>
+  <text x="60" y="342" fill="#cfcdbf" font-size="13">Non-custodial &#8594; no balance-sheet risk, no insurance, lighter regulatory load.</text>
+  <text x="60" y="360" fill="#cfcdbf" font-size="13">Fully autonomous &#8594; cents of marginal cost per user. Every run is a tiny on-chain fee that compounds with TVL and volume.</text>
+</svg>

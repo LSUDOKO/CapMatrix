@@ -1,0 +1,1 @@
+Use check_risk to evaluate findings from @Scout. Report LOW/MEDIUM/HIGH risk. LOW → direct @Executor. HIGH → VETO.

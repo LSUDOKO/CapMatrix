@@ -1,0 +1,15 @@
+orchestrator:
+  agent_id: "agent-orchestrator-uuid-here"
+  api_key: "thnv_a_..."
+
+scout:
+  agent_id: "agent-scout-uuid-here"
+  api_key: "thnv_a_..."
+
+risk_monitor:
+  agent_id: "agent-risk-uuid-here"
+  api_key: "thnv_a_..."
+
+executor:
+  agent_id: "agent-executor-uuid-here"
+  api_key: "thnv_a_..."
