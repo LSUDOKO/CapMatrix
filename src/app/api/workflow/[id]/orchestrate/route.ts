@@ -12,6 +12,8 @@ import {
 import { saveThought, generateThoughtId, generateRunId } from "@/lib/agent/thoughts";
 import { saveInsight, saveRun, updatePosition } from "@/lib/agent/memory";
 import { embedText } from "@/lib/agent/embeddings";
+import { sendMessage } from "@/lib/band/server";
+import { generateBandMessage } from "@/lib/featherless/client";
 
 export const maxDuration = 300;
 
@@ -403,6 +405,7 @@ export async function POST(
 
   const runId = generateRunId();
   const walletAddress = wf.walletAddress;
+  const bandRoomId = wf.bandRoomId; // Band room for posting detailed agent messages
 
   // Use workflow's permission if available, else individual agent's
   const rootContext = wf.permissionsContext ?? scout.delegationContext ?? "0xdemo";
@@ -454,7 +457,31 @@ export async function POST(
 
       let fullPacket: AgentHandoffPacket = packet;
 
+      // ── Helper: post a detailed Band room message ────────────────────────────
+      // Uses Featherless AI (→ Grok → Venice fallback) to generate a professional
+      // message. Never blocks the orchestration on failure.
+      const postBandMessage = async (phase: Parameters<typeof generateBandMessage>[0], data: Record<string, unknown>) => {
+        if (!bandRoomId) return;
+        try {
+          const message = await generateBandMessage(phase, data);
+          if (message) {
+            const agentIds = [process.env.BAND_ORCHESTRATOR_ID, process.env.BAND_SCOUT_ID, process.env.BAND_RISK_MONITOR_ID, process.env.BAND_EXECUTOR_ID].filter((id): id is string => !!id);
+            await sendMessage(bandRoomId, message, agentIds);
+            console.log(`[orchestrate/band] Posted ${phase} message to room ${bandRoomId.slice(0, 8)}...`);
+          }
+        } catch (e) {
+          console.warn(`[orchestrate/band] Failed to post ${phase}:`, e instanceof Error ? e.message : e);
+        }
+      };
+
       try {
+        // ── Post workflow-start message to Band ─────────────────────────────
+        await postBandMessage("workflow-start", {
+          prompt: wf.prompt,
+          budget: wf.budgetUsdc,
+          agents: [scout.name, riskMonitor.name, executor.name],
+        });
+
         // ────────────────────────────────────────────────────────────────────
         // PHASE 1: SCOUT — fetch live intelligence (single x402 payment)
         // ────────────────────────────────────────────────────────────────────
@@ -538,6 +565,15 @@ After checkYields returns, stop — do not call any more tools.`,
           recommended: intelligence.recommended,
           x402Cost:    intelligence.x402Cost,
           yields:      intelligence.yields,
+        });
+
+        // Post scout result to Band room
+        await postBandMessage("scout-result", {
+          prompt: wf.prompt,
+          bestApy: String(intelligence.bestApy),
+          recommended: intelligence.recommended,
+          reason: intelligence.reason,
+          agentName: scout.name,
         });
 
         // Save Scout's insight as team memory
@@ -683,6 +719,19 @@ Then output a JSON decision: { action, protocol, amount, confidence, reasoning, 
           reasoning:  decision.reasoning.slice(0, 200),
         });
 
+        // Post risk result to Band room
+        await postBandMessage("risk-result", {
+          prompt: wf.prompt,
+          protocol: decision.protocol ?? intelligence.recommended,
+          amount: decision.amount ?? "0",
+          riskLevel: decision.riskLevel ?? "LOW",
+          approved: String(decision.approved),
+          confidence: String(decision.confidence),
+          action: decision.action,
+          reasoning: decision.reasoning.slice(0, 280),
+          agentName: riskMonitor.name,
+        });
+
         if (!decision.approved || decision.action === "hold") {
           send("execution-skipped", {
             reason: decision.revoke
@@ -807,6 +856,18 @@ Execute via executeDefi now. Then notify the user.`,
           via:            execution.via,
         });
 
+        // Post execution result to Band room with real tx link
+        await postBandMessage("execution-result", {
+          prompt: wf.prompt,
+          protocol: execution.protocol,
+          amount: execution.amount,
+          success: String(execution.success),
+          txHash: execution.txHash,
+          contractAddress: execution.contractAddress,
+          error: execution.error,
+          agentName: executor.name,
+        });
+
         // Save Executor's insight as team memory
         const execInsight = execution.success
           ? `Executed ${decision.action} ${execution.amount} USDC → ${execution.protocol} @ ${intelligence.bestApy}% APY. tx: ${execution.txHash ?? "pending"}`
@@ -854,6 +915,14 @@ Execute via executeDefi now. Then notify the user.`,
           skipped:  false,
           x402Cost: intelligence.x402Cost,
           txHash:   execution.txHash,
+        });
+
+        // Post workflow-complete summary to Band room
+        await postBandMessage("workflow-complete", {
+          prompt: wf.prompt,
+          status: execution.success ? "successful" : "failed",
+          txHash: execution.txHash,
+          apy: String(intelligence.bestApy),
         });
 
       } catch (e) {

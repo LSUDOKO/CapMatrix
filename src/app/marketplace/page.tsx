@@ -74,7 +74,7 @@ const STRATEGIES: Strategy[] = [
     likes: 189,
     fee: "Free (Profit-share)",
     runs: 1244,
-    prompt: "Every 5 minutes, pay 0.01 USDC to morpho scanner, identify liquidation targets, execute gaslessly via 1Shot.",
+    prompt: "Every 5 minutes, pay 0.01 USDC to morpho scanner, identify liquidation targets, execute gaslessly.",
   },
 ];
 
@@ -112,7 +112,7 @@ export default function Marketplace() {
             <div className="w-7 h-7 rounded-lg bg-[#A46EDB] flex items-center justify-center">
               <Zap size={14} className="text-white" />
             </div>
-            <span className="font-bold text-sm text-[#F0EDF5]">CLOVE</span>
+            <span className="font-bold text-sm text-[#F0EDF5]">CapMatrix</span>
           </div>
           <div className="hidden md:flex items-center gap-8 text-[0.78rem] font-medium text-[#D4C4EC]">
             <a href="/" className="hover:text-[#F0EDF5] transition-colors">Product</a>

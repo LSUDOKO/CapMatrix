@@ -75,7 +75,7 @@ function generateFallbackSvgDataUrl(ctx: { protocol?: string; apy?: number; acti
   </radialGradient></defs>
   <rect width="1024" height="576" fill="#1A0033"/><rect width="1024" height="576" fill="url(#g)"/>
   <g font-family="Geist,system-ui,sans-serif" fill="#0B0C09">
-    <text x="64" y="120" font-size="14" letter-spacing="3" font-weight="500">CLOVE · AGENT REPORT</text>
+    <text x="64" y="120" font-size="14" letter-spacing="3" font-weight="500">CapMatrix · AGENT REPORT</text>
     <text x="64" y="280" font-size="120" font-weight="500" letter-spacing="-4">${apy}</text>
     <text x="64" y="340" font-size="36" font-style="italic" font-family="Georgia,serif">${proto}</text>
     <text x="64" y="500" font-size="14" letter-spacing="2" fill="#6B6A60">${act} · BASE MAINNET</text>

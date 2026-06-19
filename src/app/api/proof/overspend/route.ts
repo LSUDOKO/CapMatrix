@@ -98,7 +98,7 @@ export async function POST(req: NextRequest) {
       userPermissionsContext: chain.context,
       recipient:              walletAddress as `0x${string}`,   // send back to the user (irrelevant; it should revert)
       workAmountUsdc:         attemptUsdc,
-      memo:                   `CLOVE A2A overspend proof — cap ${capUsdc}, attempt ${attemptUsdc}`,
+      memo:                   `CapMatrix A2A overspend proof — cap ${capUsdc}, attempt ${attemptUsdc}`,
       chainId,
     });
 

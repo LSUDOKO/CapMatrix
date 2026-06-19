@@ -1,21 +1,31 @@
 "use client";
 
 import React, { useCallback, useEffect, useRef, useState } from "react";
-import { Sparkles, ArrowUp, Plus, Clock, X } from "lucide-react";
+import { Sparkles, ArrowUp, Plus, Clock, X, Radio, Bot, Network } from "lucide-react";
 import { metamaskStore } from "@/lib/web3/metamaskStore";
 
+// ── Band message type ──
+interface BandMsg {
+  id: string;
+  content: string;
+  senderId: string;
+  senderName: string | null;
+  senderType: "User" | "Agent";
+  insertedAt: string | null;
+}
+
 // ── Theme tokens (mirror dashboard/page.tsx — there is no shared NODE_STYLES) ──
-const INK       = "#ECE8DE";
-const INK_1     = "#FAF8F1";
-const ACCENT    = "#C6F833";              // lime — FILLS only (buttons, slider, dots)
-const ACCENT_TX = "#5A7A00";              // readable accent for TEXT on light
-const TEXT      = "#1B1C16";
-const TEXT2     = "#4A4D42";
-const MID       = "#6E7265";
-const LINE      = "rgba(27,29,24,0.08)";
-const LINE_MID  = "rgba(27,29,24,0.14)";
-const ACCENT_SOFT = "rgba(198,248,51,0.22)";
-const ACCENT_GLOW = "rgba(198,248,51,0.35)";
+const INK       = "#000";           // PAPER / pure black bg
+const INK_1     = "#0B0018";        // SURFACE · very dark purple
+const ACCENT    = "#A46EDB";        // purple — FILLS only (buttons, slider, dots)
+const ACCENT_TX = "#A46EDB";        // readable accent text on dark
+const TEXT      = "#F0EDF5";        // light purple-white
+const TEXT2     = "#D4C4EC";        // muted lavender
+const MID       = "#8A7CB8";        // medium purple-gray
+const LINE      = "rgba(180,140,222,0.08)";
+const LINE_MID  = "rgba(180,140,222,0.15)";
+const ACCENT_SOFT = "rgba(164,110,219,0.18)";
+const ACCENT_GLOW = "rgba(164,110,219,0.35)";
 
 /** Clarifying question from /api/agent/questions (rendered inline, not in a modal). */
 interface Question {
@@ -121,7 +131,7 @@ function renderContent(text: string): React.ReactNode[] {
     }
     if (/^`[^`]+`$/.test(part)) {
       return (
-        <code key={i} style={{ fontFamily: "var(--mono, monospace)", fontSize: "0.92em", background: "rgba(20,21,16,0.07)", padding: "1px 5px", borderRadius: 4 }}>
+        <code key={i} style={{ fontFamily: "var(--mono, monospace)", fontSize: "0.92em", background: "rgba(180,140,222,0.08)", padding: "1px 5px", borderRadius: 4 }}>
           {part.slice(1, -1)}
         </code>
       );
@@ -131,8 +141,8 @@ function renderContent(text: string): React.ReactNode[] {
 }
 
 const SUGGESTIONS = [
-  "What is CLOVE?",
-  "What can I do here?",
+  "What is CapMatrix?",
+  "What can I do here??",
   "How do agents stay within my budget?",
 ];
 
@@ -169,6 +179,61 @@ export default function ChatPanel({
   const scrollRef = useRef<HTMLDivElement>(null);
   const loadedFor = useRef<string | null>(null);
   const docked = mode === "docked";
+
+  // ── Band AI mode ──
+  const [bandMode, setBandMode] = useState(false);
+  const [bandMessages, setBandMessages] = useState<BandMsg[]>([]);
+  const [bandRoomId, setBandRoomId] = useState("");
+  const [bandLoading, setBandLoading] = useState(false);
+  const bandPollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  const loadBandMessages = useCallback(async (roomId: string) => {
+    try {
+      const res = await fetch(`/api/band/messages?roomId=${encodeURIComponent(roomId)}&page=1`);
+      if (!res.ok) return null;
+      const d = (await res.json()) as { messages?: BandMsg[] };
+      if (d.messages) setBandMessages(d.messages);
+      return d.messages ?? null;
+    } catch {
+      return null;
+    }
+  }, []);
+
+  // Enter band mode: load room ID and messages
+  const enterBandMode = useCallback(async () => {
+    const defaultRoomId = process.env.NEXT_PUBLIC_BAND_ROOM_ID || "";
+    if (!defaultRoomId) {
+      // Try listing rooms
+      try {
+        const res = await fetch("/api/band/rooms");
+        const d = (await res.json()) as { rooms?: Array<{ id: string }> };
+        const room = d.rooms?.[0];
+        if (room) {
+          setBandRoomId(room.id);
+          await loadBandMessages(room.id);
+        }
+      } catch { /* ignore */ }
+      return;
+    }
+    setBandRoomId(defaultRoomId);
+    await loadBandMessages(defaultRoomId);
+  }, [loadBandMessages]);
+
+  // Start/stop polling when band mode changes
+  useEffect(() => {
+    if (!bandMode) {
+      if (bandPollRef.current) { clearInterval(bandPollRef.current); bandPollRef.current = null; }
+      return;
+    }
+    void enterBandMode();
+    bandPollRef.current = setInterval(() => {
+      const rid = bandRoomId || process.env.NEXT_PUBLIC_BAND_ROOM_ID || "";
+      if (rid) void loadBandMessages(rid);
+    }, 5000);
+    return () => {
+      if (bandPollRef.current) { clearInterval(bandPollRef.current); bandPollRef.current = null; }
+    };
+  }, [bandMode, bandRoomId, loadBandMessages, enterBandMode]);
 
   // Re-render on wallet connect/disconnect.
   useEffect(() => {
@@ -268,6 +333,44 @@ export default function ChatPanel({
   const send = useCallback(async (text: string) => {
     const msg = text.trim();
     if (!msg || sending) return;
+
+    // ── Band mode: send to Band room ──
+    if (bandMode) {
+      const rid = bandRoomId || process.env.NEXT_PUBLIC_BAND_ROOM_ID || "";
+      if (!rid) {
+        setMessages(prev => [...prev, { role: "assistant", content: "No Band room connected. Create a workflow first." }]);
+        return;
+      }
+      setInput("");
+      setSending(true);
+      try {
+        const res = await fetch("/api/band/messages", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ roomId: rid, content: msg }),
+        });
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        // Optimistically add user message to local band messages
+        const userMsg: BandMsg = {
+          id: `local_${Date.now()}`,
+          content: msg,
+          senderId: "user",
+          senderName: "You",
+          senderType: "User",
+          insertedAt: new Date().toISOString(),
+        };
+        setBandMessages(prev => [...prev, userMsg]);
+        // Refresh from server
+        await loadBandMessages(rid);
+      } catch (e) {
+        setMessages(prev => [...prev, { role: "assistant", content: "Failed to reach Band agents: " + (e instanceof Error ? e.message : String(e)) }]);
+      } finally {
+        setSending(false);
+      }
+      return;
+    }
+
+    // ── Venice AI mode (existing) ──
     // Ensure a thread id exists so this conversation persists under its own key.
     let tid = threadId;
     if (!tid) {
@@ -323,7 +426,7 @@ export default function ChatPanel({
     } finally {
       setSending(false);
     }
-  }, [sending, wallet, threadId, activeKey, loadThreadList]);
+  }, [sending, wallet, threadId, activeKey, loadThreadList, bandMode, bandRoomId, loadBandMessages]);
 
   // Mark a proposal's card resolved (so it stops rendering controls).
   const resolveProposal = useCallback((idx: number) => {
@@ -352,20 +455,20 @@ export default function ChatPanel({
     }
   };
 
-  const empty = messages.length === 0;
+  const empty = bandMode ? bandMessages.length === 0 : messages.length === 0;
 
   // Docked + collapsed → just a slim reopen tab so the canvas is unobstructed.
   if (docked && collapsed) {
     return (
       <button
         onClick={() => setCollapsed(false)}
-        title="Open CLOVE chat"
+        title="Open CapMatrix chat"
         style={{
-          position: "absolute", top: 14, left: 0, zIndex: 6, pointerEvents: "auto",
-          display: "inline-flex", alignItems: "center", gap: 6,
-          padding: "8px 12px", borderTopRightRadius: 10, borderBottomRightRadius: 10,
+          position: "absolute", top: 18, left: 0, zIndex: 6, pointerEvents: "auto",
+          display: "inline-flex", alignItems: "center", gap: 8,
+          padding: "10px 14px", borderTopRightRadius: 12, borderBottomRightRadius: 12,
           background: INK_1, border: `1px solid ${LINE_MID}`, borderLeft: "none",
-          color: ACCENT_TX, fontSize: 12, cursor: "pointer",
+          color: ACCENT_TX, fontSize: 13, cursor: "pointer", fontWeight: 500,
         }}
       >
         <Sparkles size={13} /> Chat
@@ -378,10 +481,10 @@ export default function ChatPanel({
       style={
         docked
           ? {
-              position: "absolute", top: 0, left: 0, bottom: 0, width: 360, zIndex: 5,
-              display: "flex", flexDirection: "column", gap: 12, pointerEvents: "auto",
+              position: "absolute", top: 0, left: 0, bottom: 0, width: 420, zIndex: 5,
+              display: "flex", flexDirection: "column", gap: 14, pointerEvents: "auto",
               background: INK, borderRight: `1px solid ${LINE_MID}`,
-              padding: "14px 12px", boxShadow: "2px 0 24px -8px rgba(0,0,0,0.5)",
+              padding: "18px 16px", boxShadow: "4px 0 32px -12px rgba(0,0,0,0.6)",
             }
           : {
               position: "absolute", inset: 0, display: "flex", flexDirection: "column",
@@ -392,12 +495,38 @@ export default function ChatPanel({
     >
       {/* Header toolbar: title · New chat · History · (close/collapse) */}
       {(docked || onClose) && (
-        <div style={{ position: "relative", display: "flex", alignItems: "center", gap: 8, padding: "2px 4px 9px", borderBottom: `1px solid ${LINE}` }}>
-          <Sparkles size={14} style={{ color: ACCENT_TX }} />
-          <span style={{ fontSize: 13, fontWeight: 600, color: TEXT }}>{onClose ? "New workflow" : "CLOVE chat"}</span>
+        <div style={{ position: "relative", display: "flex", alignItems: "center", gap: 10, padding: "2px 4px 12px", borderBottom: `1px solid ${LINE}` }}>
+          {bandMode ? (
+            <Radio size={14} style={{ color: "#22c55e" }} />
+          ) : (
+            <Sparkles size={16} style={{ color: ACCENT_TX }} />
+          )}
+          <span style={{ fontSize: 15, fontWeight: 600, color: TEXT, letterSpacing: "-0.01em" }}>
+            {bandMode ? "Band Agents" : onClose ? "New workflow" : "CapMatrix chat"}
+          </span>
+          {bandMode && (
+            <span style={{ fontSize: 10, color: "#22c55e", display: "inline-flex", alignItems: "center", gap: 4, background: "rgba(34,197,94,0.1)", padding: "2px 7px", borderRadius: 4 }}>
+              <span style={{ width: 5, height: 5, borderRadius: "50%", background: "#22c55e" }} />
+              live
+            </span>
+          )}
           <div style={{ flex: 1 }} />
-          <HeaderBtn title="New chat" onClick={startNewChat}><Plus size={14} /></HeaderBtn>
-          <HeaderBtn title="Past chats" onClick={() => setShowHistory(v => !v)}><Clock size={14} /></HeaderBtn>
+          <button
+            title={bandMode ? "Switch to AI Chat" : "Switch to Band Agents"}
+            onClick={() => { setBandMode(v => !v); }}
+            style={{
+              display: "inline-flex", alignItems: "center", justifyContent: "center",
+              width: 30, height: 30, borderRadius: 7, border: "none",
+              background: "transparent", color: bandMode ? "#22c55e" : MID,
+              cursor: "pointer", transition: "all .2s",
+            }}
+            onMouseEnter={(e) => { e.currentTarget.style.background = "rgba(164,110,219,0.1)"; }}
+            onMouseLeave={(e) => { e.currentTarget.style.background = "transparent"; }}
+          >
+            <Network size={15} />
+          </button>
+          <HeaderBtn title="New chat" onClick={startNewChat}><Plus size={16} /></HeaderBtn>
+          <HeaderBtn title="Past chats" onClick={() => setShowHistory(v => !v)}><Clock size={16} /></HeaderBtn>
           {onClose
             ? <HeaderBtn title="Close" onClick={onClose}><X size={14} /></HeaderBtn>
             : <button onClick={() => setCollapsed(true)} title="Collapse" aria-label="Collapse chat" style={{ background: "transparent", border: "none", color: MID, cursor: "pointer", fontSize: 18, lineHeight: 1, padding: "2px 6px" }}>‹</button>}
@@ -411,15 +540,15 @@ export default function ChatPanel({
       {!docked && empty && (
         <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 14, maxWidth: "46ch", textAlign: "center" }}>
           <div style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 12, color: MID, letterSpacing: "0.04em", textTransform: "uppercase" }}>
-            <Sparkles size={14} style={{ color: ACCENT_TX }} /> {wallet ? "Ask CLOVE anything" : "Wallet not connected"}
+            <Sparkles size={14} style={{ color: ACCENT_TX }} /> {wallet ? "Ask CapMatrix anything" : "Wallet not connected"}
           </div>
-          <div style={{ fontSize: 30, color: TEXT, fontFamily: "var(--serif)", fontStyle: "italic", letterSpacing: "-0.02em" }}>
+          <div style={{ fontSize: 34, color: TEXT, fontFamily: "var(--serif)", fontStyle: "italic", letterSpacing: "-0.025em", lineHeight: 1.15 }}>
             {wallet ? "What should we build today?" : "Connect a wallet to begin."}
           </div>
-          <div style={{ fontSize: 13, color: TEXT2, lineHeight: 1.5 }}>
+          <div style={{ fontSize: 15, color: TEXT2, lineHeight: 1.6, maxWidth: "42ch" }}>
             {wallet
-              ? "Ask what CLOVE is or what you can do — then describe a strategy and I'll help you assemble a team of autonomous agents."
-              : "Click Connect in the top bar to grant CLOVE read access. You can still chat with me about what CLOVE does."}
+              ? "Ask what CapMatrix is or what you can do — then describe a strategy and I'll help you assemble a team of autonomous agents."
+              : "Click Connect in the top bar to grant CapMatrix read access. You can still chat with me about what CapMatrix does."}
           </div>
         </div>
       )}
@@ -430,17 +559,62 @@ export default function ChatPanel({
       )}
 
       {/* Thread */}
-      {(!empty || docked) && (
+      {(!empty || docked || bandMode) && (
         <div
           ref={scrollRef}
           style={{
             pointerEvents: "auto", width: "100%", maxWidth: docked ? "100%" : 720, flex: 1,
-            overflowY: "auto", display: "flex", flexDirection: "column", gap: 12,
-            padding: "8px 4px",
+            overflowY: "auto", display: "flex", flexDirection: "column", gap: 14,
+            padding: "12px 6px",
           }}
         >
+          {bandMode && bandMessages.length === 0 && (
+            <div style={{ fontSize: 13, color: MID, lineHeight: 1.6, padding: "16px 4px", textAlign: "center" }}>
+              <Network size={24} style={{ color: "#22c55e", marginBottom: 12, opacity: 0.6 }} />
+              <div style={{ fontWeight: 500, color: TEXT, fontSize: 14, marginBottom: 6 }}>Band Agents</div>
+              <div style={{ fontSize: 12 }}>Connected to room {bandRoomId.slice(0, 8)}… Sending your first message will start the workflow.</div>
+            </div>
+          )}
+          {bandMode && bandMessages.map((bm, i) => {
+            const isUser = bm.senderId === "user";
+            const agentColor = isUser ? ACCENT : "#818cf8";
+            return (
+              <div
+                key={bm.id || i}
+                className="clove-msg-in"
+                style={{
+                  display: "flex", flexDirection: "column",
+                  alignSelf: isUser ? "flex-end" : "flex-start",
+                  alignItems: isUser ? "flex-end" : "flex-start",
+                  maxWidth: "80%", gap: 6,
+                }}
+              >
+                {/* Agent badge */}
+                {!isUser && bm.senderName && (
+                  <div style={{ display: "flex", alignItems: "center", gap: 5, fontSize: 11, color: MID, fontWeight: 500 }}>
+                    <Bot size={11} />
+                    <span>{bm.senderName}</span>
+                    <span style={{ fontSize: 10, color: "rgba(34,197,94,0.7)" }}>●</span>
+                  </div>
+                )}
+                <div
+                  style={{
+                    padding: "12px 16px", borderRadius: 14,
+                    background: isUser ? "rgba(164,110,219,0.1)" : INK_1,
+                    border: `1px solid ${isUser ? "rgba(164,110,219,0.22)" : LINE}`,
+                    color: isUser ? TEXT : TEXT2,
+                    fontSize: 14, lineHeight: 1.55, whiteSpace: "pre-wrap",
+                    letterSpacing: "-0.005em",
+                  }}
+                >
+                  {bm.content}
+                </div>
+              </div>
+            );
+          })}
+          {!bandMode && (<>
           {docked && empty && (
-            <div style={{ fontSize: 12.5, color: MID, lineHeight: 1.5, padding: "4px 2px" }}>
+            <div style={{ fontSize: 14, color: MID, lineHeight: 1.6, padding: "4px 2px", letterSpacing: "-0.005em" }}>
               Ask me anything, or describe a new strategy to add another agent to your workspace.
             </div>
           )}
@@ -452,16 +626,17 @@ export default function ChatPanel({
                 display: "flex", flexDirection: "column",
                 alignSelf: m.role === "user" ? "flex-end" : "flex-start",
                 alignItems: m.role === "user" ? "flex-end" : "flex-start",
-                maxWidth: m.proposal ? "92%" : "82%", gap: 8,
+                maxWidth: m.proposal ? "92%" : "80%", gap: 10,
               }}
             >
               <div
                 style={{
-                  padding: "10px 13px", borderRadius: 12,
+                  padding: "14px 18px", borderRadius: 14,
                   background: m.role === "user" ? "rgba(164,110,219,0.1)" : INK_1,
                   border: `1px solid ${m.role === "user" ? "rgba(164,110,219,0.22)" : LINE}`,
                   color: m.role === "user" ? TEXT : TEXT2,
-                  fontSize: 13.5, lineHeight: 1.55, whiteSpace: "pre-wrap",
+                  fontSize: 15, lineHeight: 1.6, whiteSpace: "pre-wrap",
+                  letterSpacing: "-0.005em",
                 }}
               >
                 {m.role === "assistant" ? renderContent(m.content) : m.content}
@@ -481,21 +656,22 @@ export default function ChatPanel({
             </div>
           ))}
           {sending && (
-            <div className="clove-fade-in" style={{ alignSelf: "flex-start", display: "inline-flex", alignItems: "center", gap: 8, padding: "10px 13px", borderRadius: 12, background: INK_1, border: `1px solid ${LINE}`, color: MID, fontSize: 13.5 }}>
-              <Sparkles size={13} style={{ color: ACCENT_TX }} />
-              <span>CLOVE is thinking</span>
+            <div className="clove-fade-in" style={{ alignSelf: "flex-start", display: "inline-flex", alignItems: "center", gap: 10, padding: "14px 18px", borderRadius: 14, background: INK_1, border: `1px solid ${LINE}`, color: MID, fontSize: 14 }}>
+              <Sparkles size={15} style={{ color: ACCENT_TX }} />
+              <span>{bandMode ? "Band agents are responding" : "CapMatrix is thinking"}</span>
               <span className="clove-typing" aria-hidden>
                 <span className="d">·</span><span className="d">·</span><span className="d">·</span>
               </span>
             </div>
           )}
+          </>)}
 
           {/* Live run-activity feed (docked) */}
           {docked && events.length > 0 && (
-            <div style={{ marginTop: 6, paddingTop: 8, borderTop: `1px solid ${LINE}`, display: "flex", flexDirection: "column", gap: 6 }}>
-              <div style={{ fontSize: 10, color: MID, letterSpacing: "0.04em", textTransform: "uppercase" }}>Agent activity</div>
+            <div style={{ marginTop: 8, paddingTop: 10, borderTop: `1px solid ${LINE}`, display: "flex", flexDirection: "column", gap: 8 }}>
+              <div style={{ fontSize: 11, color: MID, letterSpacing: "0.06em", textTransform: "uppercase", fontWeight: 500 }}>Agent activity</div>
               {events.map(ev => (
-                <div key={ev.runId} style={{ display: "flex", alignItems: "center", gap: 7, fontSize: 12 }}>
+                <div key={ev.runId} style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 13 }}>
                   <span style={{ color: ev.success ? ACCENT_TX : "#C2410C", fontSize: 10 }}>●</span>
                   <span style={{ color: TEXT2, flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{ev.text}</span>
                   {ev.txHash && (
@@ -515,16 +691,19 @@ export default function ChatPanel({
       )}
 
       {/* Suggestion chips (hero empty state only) */}
-      {!docked && empty && (
-        <div style={{ pointerEvents: "auto", display: "flex", flexWrap: "wrap", gap: 8, justifyContent: "center", maxWidth: 560 }}>
+      {!docked && empty && !bandMode && (
+        <div style={{ pointerEvents: "auto", display: "flex", flexWrap: "wrap", gap: 10, justifyContent: "center", maxWidth: 600 }}>
           {SUGGESTIONS.map(s => (
             <button
               key={s}
               onClick={() => void send(s)}
               style={{
-                padding: "7px 12px", borderRadius: 999, background: "transparent",
-                border: `1px solid ${LINE_MID}`, color: TEXT2, fontSize: 12, cursor: "pointer",
+                padding: "10px 16px", borderRadius: 999, background: "transparent",
+                border: `1px solid ${LINE_MID}`, color: TEXT2, fontSize: 13, cursor: "pointer",
+                transition: "all .2s",
               }}
+              onMouseEnter={(e) => { e.currentTarget.style.borderColor = ACCENT; e.currentTarget.style.color = TEXT; }}
+              onMouseLeave={(e) => { e.currentTarget.style.borderColor = LINE_MID; e.currentTarget.style.color = TEXT2; }}
             >
               {s}
             </button>
@@ -532,25 +711,72 @@ export default function ChatPanel({
         </div>
       )}
 
+      {/* Band mode toggle chip (hero, AI mode) */}
+      {!docked && !bandMode && !empty && (
+        <div style={{ pointerEvents: "auto" }}>
+          <button
+            onClick={() => setBandMode(true)}
+            style={{
+              display: "inline-flex", alignItems: "center", gap: 7,
+              padding: "7px 14px", borderRadius: 999,
+              background: "rgba(34,197,94,0.06)",
+              border: "1px solid rgba(34,197,94,0.2)",
+              color: "#22c55e", fontSize: 11.5, cursor: "pointer",
+              transition: "all .2s",
+            }}
+            onMouseEnter={(e) => { e.currentTarget.style.background = "rgba(34,197,94,0.12)"; }}
+            onMouseLeave={(e) => { e.currentTarget.style.background = "rgba(34,197,94,0.06)"; }}
+          >
+            <Radio size={12} />
+            Switch to Band Agents
+          </button>
+        </div>
+      )}
+
+      {/* Back to AI Chat button (hero, Band mode) */}
+      {!docked && bandMode && (
+        <div style={{ pointerEvents: "auto" }}>
+          <button
+            onClick={() => setBandMode(false)}
+            style={{
+              display: "inline-flex", alignItems: "center", gap: 7,
+              padding: "7px 14px", borderRadius: 999,
+              background: "rgba(164,110,219,0.06)",
+              border: "1px solid rgba(164,110,219,0.2)",
+              color: ACCENT_TX, fontSize: 11.5, cursor: "pointer",
+              transition: "all .2s",
+            }}
+            onMouseEnter={(e) => { e.currentTarget.style.background = "rgba(164,110,219,0.12)"; }}
+            onMouseLeave={(e) => { e.currentTarget.style.background = "rgba(164,110,219,0.06)"; }}
+          >
+            <Sparkles size={12} />
+            Switch to AI Chat
+          </button>
+        </div>
+      )}
+
       {/* Prompt bar */}
       <div
         style={{
           pointerEvents: "auto", width: "100%", maxWidth: docked ? "100%" : 720,
-          display: "flex", alignItems: "flex-end", gap: 8,
-          background: INK_1, border: `1px solid ${LINE_MID}`, borderRadius: 14,
-          padding: "8px 8px 8px 14px",
+          display: "flex", alignItems: "flex-end", gap: 10,
+          background: INK_1, border: `1px solid ${LINE_MID}`, borderRadius: 16,
+          padding: "10px 10px 10px 16px",
+          transition: "border-color .2s",
         }}
+        onMouseEnter={(e) => { e.currentTarget.style.borderColor = LINE_MID === "rgba(180,140,222,0.15)" ? ACCENT : LINE_MID; }}
+        onMouseLeave={(e) => { e.currentTarget.style.borderColor = LINE_MID; }}
       >
         <textarea
           value={input}
           onChange={e => setInput(e.target.value)}
           onKeyDown={onKeyDown}
           rows={1}
-          placeholder={wallet ? "Ask about CLOVE, or describe a strategy…" : "Ask what CLOVE can do…"}
+          placeholder={bandMode ? "Send a message to your Band agents…" : wallet ? "Ask CapMatrix, or describe a strategy…" : "Ask what CapMatrix can do…"}
           style={{
             flex: 1, resize: "none", background: "transparent", border: "none", outline: "none",
-            color: TEXT, fontSize: 14, lineHeight: 1.5, fontFamily: "inherit",
-            maxHeight: 120, padding: "6px 0",
+            color: TEXT, fontSize: 15, lineHeight: 1.5, fontFamily: "inherit",
+            maxHeight: 120, padding: "7px 0",
           }}
         />
         <button
@@ -559,15 +785,17 @@ export default function ChatPanel({
           aria-label="Send"
           style={{
             display: "inline-flex", alignItems: "center", justifyContent: "center",
-            width: 34, height: 34, borderRadius: 9, border: "none",
+            width: 38, height: 38, borderRadius: 10, border: "none",
             background: input.trim() && !sending ? ACCENT : LINE_MID,
             color: input.trim() && !sending ? TEXT : MID,
             cursor: input.trim() && !sending ? "pointer" : "not-allowed",
             boxShadow: input.trim() && !sending ? `0 4px 14px -6px ${ACCENT_GLOW}` : "none",
-            transition: "background .15s",
+            transition: "all .2s",
           }}
+          onMouseEnter={(e) => { if (input.trim() && !sending) { e.currentTarget.style.transform = "translateY(-1px)"; e.currentTarget.style.boxShadow = `0 6px 20px -8px ${ACCENT_GLOW}`; } }}
+          onMouseLeave={(e) => { if (input.trim() && !sending) { e.currentTarget.style.transform = "translateY(0)"; e.currentTarget.style.boxShadow = `0 4px 14px -6px ${ACCENT_GLOW}`; } }}
         >
-          <ArrowUp size={16} strokeWidth={2.5} />
+          <ArrowUp size={18} strokeWidth={2.5} />
         </button>
       </div>
 
@@ -715,7 +943,7 @@ function OnboardingCard({ wallet }: { wallet: string }) {
     >
       <div style={{ display: "flex", alignItems: "center", gap: 7 }}>
         <Sparkles size={14} style={{ color: ACCENT_TX }} />
-        <span style={{ fontSize: 13, fontWeight: 600, color: TEXT }}>Welcome to CLOVE</span>
+        <span style={{ fontSize: 13, fontWeight: 600, color: TEXT }}>Welcome to CapMatrix</span>
         <div style={{ flex: 1 }} />
         <button onClick={dismiss} title="Dismiss" aria-label="Dismiss onboarding"
           style={{ background: "transparent", border: "none", color: MID, cursor: "pointer", padding: 2 }}>
@@ -726,7 +954,7 @@ function OnboardingCard({ wallet }: { wallet: string }) {
       <Step done n={1}>Wallet connected</Step>
       <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
         <Step done={tgLinked} n={2}>
-          {tgLinked ? "Telegram linked — control CLOVE from chat" : "Link Telegram for 1:1 control + reports"}
+          {tgLinked ? "Telegram linked — control agents from chat" : "Link Telegram for 1:1 control + reports"}
         </Step>
         {!tgLinked && (
           <button onClick={linkTelegram} disabled={busy}

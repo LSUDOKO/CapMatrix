@@ -183,7 +183,9 @@ class MetaMaskStore {
       this.log("meta", `DelegationManager: ${permission.delegationManager}`);
       this.log("meta", `Expires: ${new Date(permission.expiresAt * 1000).toLocaleDateString()}`);
     } catch (e) {
-      this.log("error", `Permission request failed: ${e instanceof Error ? e.message : e}`);
+      const msg = e instanceof Error ? e.message : typeof e === 'object' && e ? JSON.stringify(e, Object.getOwnPropertyNames(e)) : String(e);
+      console.error('[metamaskStore] Permission request error details:', msg);
+      this.log("error", `Permission request failed: ${msg}`);
     }
   }
 
@@ -226,7 +228,9 @@ class MetaMaskStore {
       this.log("success", `${data.allocated ?? 0}/${data.total ?? 0} workers funded with on-chain-capped budgets ✓`);
       return data.allocated ?? 0;
     } catch (e) {
-      this.log("error", `Fund Manager grant failed: ${e instanceof Error ? e.message : e}`);
+      const msg = e instanceof Error ? e.message : typeof e === 'object' && e ? JSON.stringify(e, Object.getOwnPropertyNames(e)) : String(e);
+      console.error('[metamaskStore] Fund Manager grant error details:', msg);
+      this.log("error", `Fund Manager grant failed: ${msg}`);
       return null;
     }
   }

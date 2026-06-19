@@ -20,9 +20,9 @@ export function BaseLogo({ size = 18 }: P) {
 }
 
 export function MetaMaskLogo({ size = 18 }: P) {
-  // MetaMask fox — simplified angular mark in the brand orange/brown.
+  // Wallet icon — abstract mark
   return (
-    <svg viewBox="0 0 24 24" style={box(size)} aria-label="MetaMask">
+    <svg viewBox="0 0 24 24" style={box(size)} aria-label="Wallet">
       <path d="M21.5 3 13.6 8.7l1.5-3.5L21.5 3Z" fill="#E2761B" />
       <path d="M2.5 3l7.8 5.8L8.9 5.2 2.5 3Z" fill="#E4761B" />
       <path d="M18.6 16.3l-2.1 3.2 4.5 1.3 1.3-4.4-3.7-.1ZM1.7 16.4 3 20.8l4.5-1.3-2.1-3.2-3.7.1Z" fill="#E4761B" />
@@ -81,7 +81,7 @@ export function LidoLogo({ size = 18 }: P) {
 
 export function VeniceLogo({ size = 18 }: P) {
   return (
-    <svg viewBox="0 0 24 24" style={box(size)} aria-label="Venice AI">
+    <svg viewBox="0 0 24 24" style={box(size)} aria-label="Featherless AI">
       <circle cx="12" cy="12" r="12" fill="#FF5A1F" />
       <path d="M6 7.5h2.4L12 15l3.6-7.5H18L12.9 17h-1.8L6 7.5Z" fill="#fff" />
     </svg>
@@ -90,7 +90,7 @@ export function VeniceLogo({ size = 18 }: P) {
 
 export function OneShotLogo({ size = 18 }: P) {
   return (
-    <svg viewBox="0 0 24 24" style={box(size)} aria-label="1Shot">
+    <svg viewBox="0 0 24 24" style={box(size)} aria-label="Execution Engine">
       <circle cx="12" cy="12" r="12" fill="#0B0C09" />
       <circle cx="12" cy="12" r="6" fill="#C8FF3D" />
       <path d="M9.5 12h5m0 0-2-2m2 2-2 2" stroke="#0B0C09" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />

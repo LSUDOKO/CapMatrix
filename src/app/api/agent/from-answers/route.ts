@@ -233,6 +233,48 @@ export async function POST(request: NextRequest) {
     periodDays,
   });
 
+  // ── Auto-create a Band chat room for the workflow (fire-and-forget) ─────────
+  // The Band room lets the user see agent discussions live. If Band isn't
+  // configured, this is a no-op (never blocks agent creation).
+  try {
+    const { createRoom, addRoomParticipant } = await import("@/lib/band/server");
+    const orchKey = process.env.BAND_ORCHESTRATOR_KEY ?? "";
+    const orchId  = process.env.BAND_ORCHESTRATOR_ID ?? "";
+    if (orchKey && orchId) {
+      const bandRoomId = await createRoom(orchKey);
+      console.log(`[from-answers] Created Band room ${bandRoomId} for workflow ${workflow.id}`);
+
+      // Add agents as participants
+      const agentRoles: Record<string, string> = {
+        scout:        process.env.BAND_SCOUT_KEY ?? "",
+        scoutId:      process.env.BAND_SCOUT_ID ?? "",
+        risk_monitor: process.env.BAND_RISK_MONITOR_KEY ?? "",
+        riskId:       process.env.BAND_RISK_MONITOR_ID ?? "",
+        executor:     process.env.BAND_EXECUTOR_KEY ?? "",
+        execId:       process.env.BAND_EXECUTOR_ID ?? "",
+      };
+
+      const participants: Array<{ id: string; key: string }> = [
+        { id: agentRoles.scoutId,   key: agentRoles.scout },
+        { id: agentRoles.riskId,    key: agentRoles.risk_monitor },
+        { id: agentRoles.execId,    key: agentRoles.executor },
+      ];
+
+      for (const p of participants) {
+        if (!p.id || !p.key) continue;
+        try {
+          await addRoomParticipant(bandRoomId, p.id, "member", { key: p.key });
+        } catch { /* non-fatal */ }
+      }
+
+      // Store the Band room ID on the workflow
+      try {
+        const { updateWorkflow } = await import("@/lib/agent/workflows");
+        await updateWorkflow(workflow.id, { bandRoomId });
+      } catch { /* non-fatal */ }
+    }
+  } catch { /* Band integration is optional — never blocks agent creation */ }
+
   // If no permission was passed in the request, check if the user already has
   // Resolve effective permission — passed in request OR stored from a previous grant.
   // If neither exists, REJECT the creation. Agents must have a real ERC-7715 permission
@@ -293,12 +335,17 @@ export async function POST(request: NextRequest) {
     effectivePermContext.startsWith("0x")
   );
 
-  // Hard-fail: no real permission = no agent creation.
+  // Soft-fail: no real permission → create agents in demo mode (0xdemo context).
+  // For hackathon demos, this lets users create and see the full agent team on
+  // the canvas without needing a working MetaMask ERC-7715 grant. Real on-chain
+  // execution requires the real permission later.
   if (!_isRealPerm) {
-    return NextResponse.json({
-      error: "No real ERC-7715 permission found. Grant a permission via MetaMask before creating agents.",
-      code:  "needs-permission",
-    }, { status: 400 });
+    console.log("[from-answers] No real ERC-7715 permission — creating agents in demo mode (0xdemo context)");
+    // Set fallback demo context so downstream effectivePermContext! assertions
+    // resolve to "0xdemo" instead of undefined — matching the convention that
+    // hasRealDelegation() and the rest of the codebase already check for.
+    effectivePermContext       = "0xdemo";
+    effectiveDelegationManager = "0x";
   }
 
   if (_isRealPerm) {

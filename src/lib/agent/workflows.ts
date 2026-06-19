@@ -39,6 +39,10 @@ export interface Workflow {
   createdAt:       Date;
   status:          WorkflowStatus;
 
+  // ── Band AI room (stores the Band chat room for this workflow) ──
+  /** The Band chat room ID where agents collaborate. */
+  bandRoomId?:     string | null;
+
   // ── Permission context (replaces localStorage for multi-workflow support) ──
   /** The ERC-7715 delegation context for THIS workflow. */
   permissionsContext?:        string | null;

@@ -108,8 +108,13 @@ def _test_llm(llm: ChatOpenAI) -> bool:
             fut = ex.submit(llm.invoke, [{"role": "user", "content": "hi"}])
             fut.result(timeout=10)
         return True
-    except Exception:
-        return False
+    except Exception as e:
+        err_str = str(e).lower()
+        # Only reject on auth errors — rate limits (429) and timeouts are transient.
+        if "401" in err_str or "403" in err_str or "unauthorized" in err_str or "authentication" in err_str or "invalid api key" in err_str:
+            return False
+        # Rate-limited, timed out, etc. — still usable, RateLimitedLLM handles retries.
+        return True
 
 
 def create_llm(model: str | None = None) -> BaseChatModel:

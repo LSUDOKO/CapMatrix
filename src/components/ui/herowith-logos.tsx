@@ -3,34 +3,14 @@
 import React, { useRef, useEffect } from "react";
 import Link from "next/link";
 import clsx from "clsx";
-import {
-  MorphoLogo, AaveLogo, UniswapLogo, AerodromeLogo, LidoLogo,
-  VeniceLogo, BaseLogo, MetaMaskLogo, OneShotLogo,
-} from "@/components/BrandLogos";
 
-const PROTOCOLS = [
-  { name: "Morpho",     url: "Morpho",     color: "#3B5BFF" },
-  { name: "Aave",       url: "Aave",       color: "#B6509E" },
-  { name: "Uniswap",    url: "Uniswap",    color: "#FF007A" },
-  { name: "Aerodrome",  url: "Aerodrome",  color: "#0F62FE" },
-  { name: "Lido",       url: "Lido",       color: "#00A3FF" },
-  { name: "Venice AI",  url: "Venice",     color: "#FF5A1F" },
-  { name: "Base",       url: "Base",       color: "#0052FF" },
-  { name: "MetaMask",   url: "MetaMask",   color: "#F6851B" },
-  { name: "1Shot",      url: "1Shot",      color: "#A46EDB" },
+const POWERED_BY_LOGOS = [
+  { src: "/images/band-logo-light.svg",   alt: "Band AI" },
+  { src: "/images/aimlapi_logo.jpg",      alt: "AI/ML API" },
+  { src: "/images/featherless-ai.svg",    alt: "Featherless AI" },
+  { src: "/images/vercel.png",            alt: "Vercel" },
+  { src: "/images/unisawp.png",           alt: "Uniswap" },
 ];
-
-const LOGO_MAP: Record<string, React.ReactNode> = {
-  Morpho:    <MorphoLogo size={28} />,
-  Aave:      <AaveLogo size={28} />,
-  Uniswap:   <UniswapLogo size={28} />,
-  Aerodrome: <AerodromeLogo size={28} />,
-  Lido:      <LidoLogo size={28} />,
-  Venice:    <VeniceLogo size={28} />,
-  Base:      <BaseLogo size={28} />,
-  MetaMask:  <MetaMaskLogo size={28} />,
-  "1Shot":   <OneShotLogo size={28} />,
-};
 
 export default function FUIHeroWithBorders() {
   const bloomRef = useRef<HTMLDivElement>(null);
@@ -59,17 +39,22 @@ export default function FUIHeroWithBorders() {
         background: "linear-gradient(to bottom, #000, #200D42 40%, #4F21A1 74%, #A46EDB 88%)",
       }}
     >
-      {/* Large bottom purple glow */}
+      {/* Large bottom globe/orb */}
       <div
         className="absolute left-1/2 top-[calc(100%-90px)] lg:top-[calc(100%-150px)] h-[500px] w-[700px] md:h-[500px] md:w-[1100px] lg:h-[750px] lg:w-[120%] -translate-x-1/2 rounded-[100%]"
         style={{
-          border: "1px solid rgba(180,140,222,0.15)",
-          background: "radial-gradient(closest-side, #000 40%, #9560EB 70%, transparent)",
+          border: "2px solid rgba(180,140,222,0.35)",
+          background: "radial-gradient(closest-side, #200D42 30%, #000 60%, transparent 90%)",
+          zIndex: 0,
         }}
       />
 
       {/* Three-column border grid */}
-      <div className="hero-border-grid" />
+      <div className="hero-border-grid">
+        <div className="col-span-1 flex h-full items-center justify-center" />
+        <div className="col-span-1 flex h-full items-center justify-center" />
+        <div className="col-span-1 flex h-full items-center justify-center" />
+      </div>
 
       {/* Ambient purple glows */}
       <figure
@@ -113,7 +98,7 @@ export default function FUIHeroWithBorders() {
               style={{ background: "#A46EDB", boxShadow: "0 0 0 4px rgba(164,110,219,0.25)" }}
             />
             <span className="text-xs tracking-tight" style={{ color: "#8A7CB8" }}>
-              Live on Base mainnet · ERC-7715 · 1Shot Relayer
+              Band of Agents Hackathon · Multi-Agent DeFi · 2026
             </span>
           </div>
         </div>
@@ -123,92 +108,91 @@ export default function FUIHeroWithBorders() {
           <h1 className="text-pretty text-center text-4xl font-medium leading-none tracking-[-1.44px] sm:text-5xl md:text-6xl lg:text-[clamp(50px,7vw,75px)] md:max-w-screen-lg md:tracking-[-2.16px]"
             style={{ color: "#F0EDF5" }}
           >
-            Autonomous{" "}
+            Multi-agent{" "}
             <span style={{ fontFamily: "var(--serif)", fontStyle: "italic", fontWeight: 400, color: "#A46EDB" }}>
-              capital
+              DeFi
             </span>
-            , quietly.
+            , automated.
           </h1>
           <h2 className="max-w-2xl text-pretty text-center md:text-lg"
             style={{ color: "#8A7CB8" }}
           >
-            Describe a strategy in plain English, grant one capped ERC-7715 budget, and a Fund Manager splits
-            it across specialized AI agents that research, decide, and execute on-chain — gas paid in USDC.
+            CapMatrix orchestrates specialized AI agents through Band chat rooms — from market intelligence to
+            on-chain execution. One pipeline. Zero manual intervention.
           </h2>
         </div>
 
         {/* CTA buttons */}
-        <div className="flex items-start justify-center px-8 sm:px-24">
-          <div className="flex w-full max-w-[80vw] flex-col items-center justify-center md:max-w-[392px]">
+        <div className="flex items-start justify-center divide-y divide-white/10 px-8 sm:px-24">
+          <div className="flex w-full max-w-[80vw] flex-col items-center justify-start md:max-w-[392px]">
             <Link href="/marketplace" className="w-full cursor-pointer">
               <div
                 className={clsx(
                   "flex h-14 flex-col items-center justify-center rounded-none text-base",
-                  "w-full border-x border-y-0 backdrop-blur-xl transition-colors duration-150 hover:bg-white/5",
+                  "w-full backdrop-blur-xl transition-colors duration-150",
+                  "border-x border-y-0 border-white/10",
+                  "bg-transparent hover:bg-white/5 dark:hover:bg-white/5",
                 )}
-                style={{
-                  color: "#8A7CB8",
-                  borderColor: "rgba(180,140,222,0.12)",
-                  background: "transparent",
-                }}
+                style={{ color: "#b49de0" }}
               >
-                Explore strategies
+                Explore workflows
               </div>
             </Link>
             <Link href="/dashboard" className="w-full cursor-pointer">
               <div
                 className={clsx(
                   "flex h-14 flex-col items-center justify-center rounded-none text-base font-medium",
-                  "w-full border-0",
+                  "w-full border-[1.2px] border-white/5",
+                  "bg-gradient-to-tr from-[#4F21A1] via-[#7B4FC4] to-[#A46EDB]",
                 )}
-                style={{
-                  color: "#000",
-                  background: "linear-gradient(to right, rgba(164,110,219,0.9), rgba(164,110,219,0.7))",
-                  transition: "opacity 0.2s",
-                }}
-                onMouseEnter={(e) => { e.currentTarget.style.opacity = "0.85"; }}
-                onMouseLeave={(e) => { e.currentTarget.style.opacity = "1"; }}
+                style={{ color: "#F0EDF5" }}
               >
-                Launch agent <span className="ml-1" aria-hidden>↗</span>
+                Launch pipeline <span className="ml-2" aria-hidden>↗</span>
               </div>
             </Link>
           </div>
         </div>
 
-        {/* Logo cloud */}
+        {/* Powered by — logo cloud with cursive labels */}
         <div className="mx-auto w-full max-w-7xl px-4 py-16 md:px-8">
           <div className="mb-6 text-center text-[11px] uppercase tracking-[0.18em]" style={{ color: "#8A7CB8" }}>
-            Composed from
+            Powered by
           </div>
           <div
-            className="group relative mt-2 flex gap-6 overflow-hidden p-2"
+            className="group relative mt-2 flex gap-10 overflow-hidden p-2"
             style={{
               maskImage: "linear-gradient(to left, transparent 0%, black 20%, black 80%, transparent 95%)",
               WebkitMaskImage: "linear-gradient(to left, transparent 0%, black 20%, black 80%, transparent 95%)",
             }}
           >
-            {Array.from({ length: 5 }).map((_, idx) => (
+            {Array.from({ length: 3 }).map((_, idx) => (
               <div
                 key={idx}
-                className="flex shrink-0 animate-x-slider flex-row justify-around gap-6"
+                className="flex shrink-0 animate-x-slider flex-row justify-around gap-10"
               >
-                {PROTOCOLS.map((p) => (
+                {POWERED_BY_LOGOS.map((logo) => (
                   <div
-                    key={p.name}
-                    className="flex h-12 w-28 flex-none items-center justify-center gap-2.5 px-2 text-sm font-medium"
-                    style={{ color: "#8A7CB8" }}
+                    key={`${idx}-${logo.alt}`}
+                    className="flex flex-col items-center justify-center gap-2 w-28 flex-none px-2"
                   >
+                    <img
+                      src={logo.src}
+                      alt={logo.alt}
+                      className="h-8 w-auto md:h-10 object-contain"
+                    />
                     <span
-                      className="flex items-center justify-center rounded-full"
+                      className="text-center leading-tight"
                       style={{
-                        width: 32, height: 32,
-                        background: "rgba(255,255,255,0.04)",
-                        boxShadow: `0 0 0 1px ${p.color}33`,
+                        fontFamily: "var(--serif)",
+                        fontStyle: "italic",
+                        color: "#b49de0",
+                        fontWeight: 500,
+                        fontSize: "15px",
+                        letterSpacing: "-0.01em",
                       }}
                     >
-                      {LOGO_MAP[p.url]}
+                      {logo.alt}
                     </span>
-                    <span>{p.name}</span>
                   </div>
                 ))}
               </div>

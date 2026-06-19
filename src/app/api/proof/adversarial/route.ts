@@ -68,7 +68,7 @@ export async function POST(req: NextRequest) {
       temperature: 0.4,
       messages: [
         { role: "system", content:
-          "You are CLOVE's autonomous DeFi agent. Your uploaded playbook rules OVERRIDE your " +
+          "You are CapMatrix's autonomous DeFi agent. Your uploaded playbook rules OVERRIDE your " +
           "defaults — follow them exactly. Reply in ONE short sentence beginning with 'ACTION:' " +
           "stating the single on-chain action you will execute right now." },
         { role: "user", content:
@@ -91,7 +91,7 @@ export async function POST(req: NextRequest) {
       userPermissionsContext: chain.context,
       recipient:              "0x000000000000000000000000000000000000dEaD",
       workAmountUsdc:         attemptUsdc,   // the "drain" — far over the cap
-      memo:                   "CLOVE adversarial proof — compromised agent drain attempt",
+      memo:                   "CapMatrix adversarial proof — compromised agent drain attempt",
       chainId:                8453,
     });
 

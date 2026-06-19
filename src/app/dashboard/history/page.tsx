@@ -5,14 +5,14 @@ import { useRouter } from "next/navigation";
 import { ArrowLeft, Clock, Workflow as WorkflowIcon } from "lucide-react";
 import { metamaskStore } from "@/lib/web3/metamaskStore";
 
-const INK       = "#ECE8DE";
-const INK_1     = "#FFFFFF";
+const INK       = "#000";
+const INK_1     = "#0B0018";
 const ACCENT    = "#A46EDB";
-const TEXT      = "#1B1C16";
-const TEXT2     = "#56564B";
-const MID       = "#8C8B7E";
-const LINE      = "rgba(20,21,16,0.08)";
-const LINE_MID  = "rgba(20,21,16,0.14)";
+const TEXT      = "#F0EDF5";
+const TEXT2     = "#D4C4EC";
+const MID       = "#8A7CB8";
+const LINE      = "rgba(180,140,222,0.08)";
+const LINE_MID  = "rgba(180,140,222,0.15)";
 
 interface Workflow {
   id:              string;

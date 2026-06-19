@@ -71,9 +71,9 @@ export async function POST(request: NextRequest) {
     const account = await getTelegramAccountByChatId(chatId);
     if (!account) {
       await reply(chatId, [
-        "*CLOVE Telegram is not linked yet.*",
+        "*CapMatrix Telegram is not linked yet.*",
         "",
-        "Open the CLOVE dashboard, connect your wallet, then use *Connect Telegram* to link this chat.",
+        "Open the CapMatrix dashboard, connect your wallet, then use *Connect Telegram* to link this chat.",
       ].join("\n"));
       return NextResponse.json({ ok: true });
     }
@@ -118,9 +118,9 @@ async function handleStart(input: {
 }) {
   if (!input.token) {
     await reply(input.chatId, [
-      "*Welcome to CLOVE.*",
+      "*Welcome to CapMatrix.*",
       "",
-      "To link this chat, open the CLOVE web dashboard after connecting your wallet and generate a Telegram link.",
+      "To link this chat, open the CapMatrix web dashboard after connecting your wallet and generate a Telegram link.",
     ].join("\n"));
     return;
   }
@@ -140,7 +140,7 @@ async function handleStart(input: {
   });
 
   await reply(input.chatId, [
-    "*CLOVE linked.*",
+    "*CapMatrix linked.*",
     "",
     `Wallet: \`${shortWallet(walletAddress)}\``,
     "",
@@ -207,7 +207,7 @@ async function replyAgents(account: TelegramAccount) {
   const agents = await listAgentsForWallet(account.walletAddress);
   if (!agents.length) return reply(account.chatId, "No agents yet. Create one in the web dashboard, or say `/create <strategy>` after granting a budget.");
 
-  const lines = [`*Your CLOVE agents* (${agents.length})`, ""];
+  const lines = [`*Your CapMatrix agents* (${agents.length})`, ""];
   for (const a of agents.slice(0, 12)) {
     lines.push(`*${escapeTelegramMd(a.name)}*`);
     lines.push(`\`${a.id}\``);
@@ -223,7 +223,7 @@ async function replyWorkflows(account: TelegramAccount) {
   const workflows = await listWorkflowsForWallet(account.walletAddress);
   if (!workflows.length) return reply(account.chatId, "No workflows yet.");
 
-  const lines = [`*Your CLOVE teams/workflows* (${workflows.length})`, ""];
+  const lines = [`*Your CapMatrix teams/workflows* (${workflows.length})`, ""];
   for (const wf of workflows.slice(0, 10)) {
     lines.push(`*${escapeTelegramMd(wf.name)}*`);
     lines.push(`\`${wf.id}\``);
@@ -357,7 +357,7 @@ async function createAgentFromTelegram(account: TelegramAccount, prompt: string,
     return reply(account.chatId, [
       "I can create this, but you need a web wallet grant first.",
       "",
-      "Open CLOVE, connect your wallet, grant a capped USDC budget, then send this again.",
+      "Open CapMatrix, connect your wallet, grant a capped USDC budget, then send this again.",
     ].join("\n"));
   }
 
@@ -450,7 +450,7 @@ async function reply(chatId: string, text: string): Promise<void> {
 
 function helpText(account: TelegramAccount): string {
   return [
-    "*CLOVE Telegram*",
+    "*CapMatrix Telegram*",
     "",
     `Linked wallet: \`${shortWallet(account.walletAddress)}\``,
     "",

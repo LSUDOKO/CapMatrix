@@ -137,7 +137,7 @@ export async function ensureBaseNetwork(): Promise<boolean> {
 
 /** Prompt the user to connect their MetaMask account and return address. */
 export async function connectWallet(): Promise<`0x${string}` | null> {
-  if (!window.ethereum) return null;
+  if (!window.ethereum || !window.ethereum.isMetaMask) return null;
   const accounts = (await window.ethereum.request({
     method: "eth_requestAccounts",
   })) as string[];
@@ -215,11 +215,14 @@ export async function requestUsdcPermission(
   justification: string,
   targetChainId: number = CHAIN.id,
 ): Promise<GrantedPermission> {
-  if (!window.ethereum) throw new Error("MetaMask not found");
+  if (!window.ethereum) throw new Error("No wallet extension detected. Install MetaMask.");
+  if (!window.ethereum.isMetaMask) throw new Error(
+    "Non-MetaMask wallet detected (e.g. Backpack). Disable other wallet extensions and reload, or install MetaMask."
+  );
 
   // ── 1. Connect + switch chain ─────────────────────────────────────────────
   const accounts = await window.ethereum.request({ method: "eth_requestAccounts" }) as string[];
-  if (!accounts || accounts.length === 0) throw new Error("wallet must has at least one account");
+  if (!accounts || accounts.length === 0) throw new Error("MetaMask has no accounts. Create or unlock an account first.");
   const userEoa = accounts[0] as `0x${string}`;
 
   await window.ethereum.request({
@@ -284,13 +287,15 @@ export async function requestUsdcPermission(
       msg.includes("does not exist") ||
       msg.includes("not found") ||
       msg.includes("not supported") ||
-      msg.includes("unsupported method");
-
-    // A real rejection (user denied, etc.) — surface it, don't fall back.
-    if (!methodMissing) throw e;
+      msg.includes("unsupported method");      // A real rejection (user denied, etc.) — surface it, don't fall back.
+    // Log the actual error details so users see what went wrong instead of [object Object]
+    if (!methodMissing) {
+      console.error('[permissions] Advanced Permissions failed:', JSON.stringify({ code, message: msg, name: (e as Error)?.name }, null, 2));
+      throw e;
+    }
 
     // ── 3. FALLBACK: manual EIP-712 delegation signing (older MetaMask) ──────
-    console.warn("[permissions] Advanced Permissions unavailable; using manual delegation signing");
+    console.warn('[permissions] Advanced Permissions unavailable (code=' + code + '); using manual delegation signing');
     return signDelegationManually(userEoa, delegateTo, budgetUsdc, periodDays, targetChainId);
   }
 }
@@ -368,11 +373,14 @@ export async function requestRelayerPermission(
   budgetUsdc: string,
   periodDays: number,
 ): Promise<GrantedPermission> {
-  if (!window.ethereum) throw new Error("MetaMask not found");
+  if (!window.ethereum) throw new Error("No wallet extension detected. Install MetaMask.");
+  if (!window.ethereum.isMetaMask) throw new Error(
+    "Non-MetaMask wallet detected (e.g. Backpack). Disable other wallet extensions and reload."
+  );
 
   // Connect + ensure Base mainnet
   const accounts = await window.ethereum.request({ method: "eth_requestAccounts" }) as string[];
-  if (!accounts || accounts.length === 0) throw new Error("wallet must has at least one account");
+  if (!accounts || accounts.length === 0) throw new Error("MetaMask has no accounts. Create or unlock an account first.");
   const userEoa = accounts[0] as `0x${string}`;
   await window.ethereum.request({
     method: "wallet_switchEthereumChain",
@@ -465,7 +473,7 @@ export async function requestFundManagerPermission(
     fundManagerAddress,
     budgetUsdc,
     periodDays,
-    "CLOVE Fund Manager — splits this budget into capped, revocable worker agents",
+    "CapMatrix Fund Manager — splits this budget into capped, revocable worker agents",
     CHAIN.id,
   );
 }

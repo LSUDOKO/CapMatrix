@@ -331,8 +331,8 @@ function PortfolioTab({ pf }: { pf: Portfolio }) {
         </div>
         <div className="card">
           <div className="card-head"><span className="ct">Intel spend breakdown</span><span className="ch-right">${money(pf.spend.x402Total, 2)} total</span></div>
-          <div className="mini-row"><span className="k">Intelligence (DeFiLlama + Venice)</span><span className="mv">${money(pf.spend.x402Intel, 4)}</span></div>
-          <div className="mini-row"><span className="k">Text-to-speech (Venice TTS)</span><span className="mv">${money(pf.spend.x402Tts, 4)}</span></div>
+          <div className="mini-row"><span className="k">Intelligence (DeFiLlama + Featherless AI)</span><span className="mv">${money(pf.spend.x402Intel, 4)}</span></div>
+          <div className="mini-row"><span className="k">Text-to-speech (Featherless AI TTS)</span><span className="mv">${money(pf.spend.x402Tts, 4)}</span></div>
           <div className="mini-row"><span className="k">Image generation</span><span className="mv">${money(pf.spend.x402Image, 4)}</span></div>
           <div className="mini-row"><span className="k" style={{ color: "var(--text-2)", fontWeight: 500 }}>1Shot relayer fees</span><span className="mv">${money(pf.spend.oneShotFees, 3)}</span></div>
         </div>
@@ -468,7 +468,7 @@ function DelegationTab({ pf, perm }: { pf: Portfolio; perm: Permission | null })
         <div className="rp-top">
           <div style={{ flex: 1 }}>
             <div className="rp-title"><DIcon name="shield" size={16} /> Root permission</div>
-            <div className="rp-std">ERC-7715 · MetaMask delegation</div>
+            <div className="rp-std">ERC-7715 · Band Delegation</div>
           </div>
         </div>
         <div className="rp-grid">
@@ -510,7 +510,7 @@ function Sidebar({ page, setPage }: { page: string; setPage: (p: string) => void
     <aside>
       <div className="brand">
         <div className="mark"><CloverMark color="#A46EDB" /></div>
-        <div className="bname">clove</div>
+        <div className="bname">CapMatrix</div>
         <div className="bbeta">beta</div>
       </div>
 

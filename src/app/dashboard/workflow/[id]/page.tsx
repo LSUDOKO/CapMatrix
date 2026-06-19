@@ -9,22 +9,22 @@ import {
   Handle, Position,
 } from "@xyflow/react";
 import "@xyflow/react/dist/style.css";
-import { ArrowLeft, Clock, Play, Zap, History, LayoutTemplate, ChevronDown, ChevronRight } from "lucide-react";
+import { ArrowLeft, Clock, Play, Zap, History, LayoutTemplate, ChevronDown, ChevronRight, Radio } from "lucide-react";
 import { metamaskStore } from "@/lib/web3/metamaskStore";
 import type { AgentHandoffPacket } from "@/lib/agent/handoff";
 
 // ── Design tokens ─────────────────────────────────────────────────────────────
-const INK        = "#ECE8DE";
-const INK_1      = "#FFFFFF";
-const INK_2      = "#F6F4EE";
+const INK        = "#000";
+const INK_1      = "#0B0018";
+const INK_2      = "#1A0033";
 const ACCENT     = "#A46EDB";
 const ACCENT_SOFT = "rgba(164,110,219,0.18)";
 const ACCENT_GLOW = "rgba(164,110,219,0.35)";
-const TEXT       = "#1B1C16";
-const TEXT2      = "#56564B";
-const MID        = "#8C8B7E";
-const LINE       = "rgba(20,21,16,0.08)";
-const LINE_MID   = "rgba(20,21,16,0.14)";
+const TEXT       = "#F0EDF5";
+const TEXT2      = "#D4C4EC";
+const MID        = "#8A7CB8";
+const LINE       = "rgba(180,140,222,0.08)";
+const LINE_MID   = "rgba(180,140,222,0.15)";
 
 const SCOUT_CLR    = "#3DCEFF";
 const RISK_CLR     = "#FFD93D";
@@ -245,7 +245,7 @@ function AgentBlock({
           width: 28, height: 28, borderRadius: 8, display: "flex", alignItems: "center", justifyContent: "center",
           background: `${color}1A`, fontSize: 13, border: `1px solid ${color}33`,
         }}>
-          {role === "scout" ? "🔍" : role === "risk" ? "🛡️" : "⚡"}
+          {role === "scout" ? "SVG" : role === "risk" ? "RISK" : "ACT"}
         </span>
         <div style={{ flex: 1 }}>
           <div style={{ fontSize: 13, fontWeight: 600, color: done || active ? TEXT : TEXT2, letterSpacing: "-0.01em" }}>{label}</div>
@@ -705,16 +705,139 @@ function CopyDeskView({ workflow, agents, runs }: { workflow: Workflow; agents: 
 
       {/* Two parallel tiers */}
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(280px, 1fr))", gap: 14 }}>
-        {cons && <DeskTierCard agent={cons} label="Conservative copier" sub="Blue chips · liquidity ≥ $10M" color={TIER_BLUE}  icon="🛡️" runs={runs} />}
-        {aggr && <DeskTierCard agent={aggr} label="Aggressive copier"  sub="Small caps · liquidity < $10M" color={TIER_AMBER} icon="⚡" runs={runs} />}
+        {cons && <DeskTierCard agent={cons} label="Conservative copier" sub="Blue chips · liquidity ≥ $10M" color={TIER_BLUE}  icon="RISK" runs={runs} />}
+        {aggr && <DeskTierCard agent={aggr} label="Aggressive copier"  sub="Small caps · liquidity < $10M" color={TIER_AMBER} icon="ACT" runs={runs} />}
       </div>
 
       {/* Legend */}
       <div style={{ display: "flex", gap: 18, fontSize: 11, color: TEXT2 }}>
         <span style={{ display: "inline-flex", alignItems: "center", gap: 6 }}><span style={{ width: 9, height: 9, borderRadius: 2, background: TIER_BLUE }} /> lower risk</span>
         <span style={{ display: "inline-flex", alignItems: "center", gap: 6 }}><span style={{ width: 9, height: 9, borderRadius: 2, background: TIER_AMBER }} /> higher risk</span>
-        <span style={{ marginLeft: "auto", display: "inline-flex", alignItems: "center", gap: 6, color: MID }}>🔒 caps enforced on-chain</span>
+        <span style={{ marginLeft: "auto", display: "inline-flex", alignItems: "center", gap: 6, color: MID }}>locked caps enforced on-chain</span>
       </div>
+    </div>
+  );
+}
+
+
+// ── Band AI Room View (renders inside timeline tab) ──────────────────────────
+function BandAIView({ bandRoomId, bandMessages, bandError, prompt }: {
+  bandRoomId: string | null;
+  bandMessages: Array<{ id: string; content: string; senderName: string | null; senderType: string; insertedAt: string | null }>;
+  bandError: string | null;
+  prompt: string;
+}) {
+  const scrollRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (scrollRef.current) {
+      scrollRef.current.scrollTo({ top: scrollRef.current.scrollHeight, behavior: "smooth" });
+    }
+  }, [bandMessages]);
+
+  return (
+    <div style={{ marginTop: 24, marginBottom: 8 }}>
+      <div style={{
+        display: "flex", alignItems: "center", gap: 8, marginBottom: 12,
+        fontSize: 9.5, color: "#22c55e", letterSpacing: "0.04em", textTransform: "uppercase",
+      }}>
+        <Radio size={10} />
+        Band AI agents
+        {bandRoomId && (
+          <span style={{ fontSize: 9, color: MID, fontWeight: 400, textTransform: "none", letterSpacing: "normal" }}>
+            · room {bandRoomId.slice(0, 8)}…
+          </span>
+        )}
+      </div>
+
+      {!bandRoomId && !bandError && (
+        <div style={{ fontSize: 12, color: MID, fontStyle: "italic", padding: "12px 0" }}>
+          Band not configured — set BAND_ORCHESTRATOR_KEY for AI agent collaboration.
+        </div>
+      )}
+
+      {bandError && (
+        <div style={{ fontSize: 12, color: "#FF8A66", padding: "8px 12px", borderRadius: 8, background: "rgba(255,69,69,0.08)", border: "1px solid rgba(255,69,69,0.2)" }}>
+          {bandError}
+        </div>
+      )}
+
+      {bandRoomId && bandMessages.length === 0 && (
+        <div style={{ fontSize: 12, color: MID, fontStyle: "italic", padding: "0 0 12px 0" }}>
+          Waiting for agents to respond… send the initial task to the room.
+        </div>
+      )}
+
+      <div ref={scrollRef} style={{ maxHeight: 400, overflowY: "auto", display: "flex", flexDirection: "column", gap: 0 }}>
+        {bandMessages.length === 0 && (
+          <div style={{ fontSize: 12, color: MID, fontStyle: "italic", padding: "0 0 12px 0" }}>
+            Waiting for agents to respond…
+          </div>
+        )}
+      {bandMessages.map((bm, i) => {
+        const isUser = bm.senderType === "User";
+        const isOrchestrator = bm.senderName?.toLowerCase().includes("orchestrator");
+        const isScout = bm.senderName?.toLowerCase().includes("scout");
+        const isRisk = bm.senderName?.toLowerCase().includes("risk");
+        const isExecutor = bm.senderName?.toLowerCase().includes("executor");
+        const agentColor = isOrchestrator ? "#A46EDB" : isScout ? "#3DCEFF" : isRisk ? "#FFD93D" : isExecutor ? "#FF8A66" : isUser ? ACCENT : MID;
+        const label = bm.senderName ?? (isUser ? "You" : "Agent");
+        return (
+          <div key={bm.id || i} style={{
+            display: "flex", flexDirection: "column", gap: 4,
+            marginBottom: 8, alignItems: isUser ? "flex-end" : "flex-start",
+          }}>
+            {!isUser && (
+              <div style={{ fontSize: 10, color: agentColor, fontWeight: 600, letterSpacing: "0.02em" }}>
+                <span style={{ width: 6, height: 6, borderRadius: "50%", background: agentColor, display: "inline-block", marginRight: 5 }} />
+                {label}
+              </div>
+            )}
+            <div style={{
+              padding: "8px 12px", borderRadius: 8, maxWidth: "90%",
+              background: isUser ? "rgba(164,110,219,0.08)" : "rgba(34,197,94,0.04)",
+              border: `1px solid ${isUser ? "rgba(164,110,219,0.15)" : "rgba(34,197,94,0.12)"}`,
+              fontSize: 12, color: TEXT2, lineHeight: 1.5, whiteSpace: "pre-wrap",
+            }}>
+              {bm.content}
+            </div>
+            {bm.insertedAt && (
+              <div style={{ fontSize: 9, color: MID, opacity: 0.6 }}>
+                {new Date(bm.insertedAt).toLocaleTimeString()}
+              </div>
+            )}
+          </div>
+        );
+      })}
+
+      </div>
+
+      {/* Send-to-room button */}
+      {bandRoomId && (
+        <button
+          onClick={async () => {
+            try {
+              await fetch("/api/band/launch-workflow", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({
+                  roomId: bandRoomId,
+                  prompt: prompt,
+                  scenario: "yield-farm",
+                }),
+              });
+            } catch { /* ignore */ }
+          }}
+          style={{
+            marginTop: 8, padding: "6px 14px", borderRadius: 7,
+            background: "rgba(34,197,94,0.08)", border: "1px solid rgba(34,197,94,0.2)",
+            color: "#22c55e", fontSize: 11.5, cursor: "pointer",
+            display: "inline-flex", alignItems: "center", gap: 6,
+          }}
+        >
+          <Radio size={12} />
+          Send task to Band agents
+        </button>
+      )}
     </div>
   );
 }
@@ -795,7 +918,7 @@ export default function WorkflowDetailPage() {
           labelBgPadding: [6, 4] as [number, number],
           style: isActive
             ? { stroke: ACCENT, strokeWidth: 1.25, strokeDasharray: "3 7" }
-            : { stroke: "rgba(20,21,16,0.16)", strokeWidth: 1, strokeDasharray: "2 4" },
+            : { stroke: "rgba(164,110,219,0.18)", strokeWidth: 1, strokeDasharray: "2 4" },
         });
       }
     }
@@ -1041,6 +1164,69 @@ export default function WorkflowDetailPage() {
     findings?: { protocol: string; apy?: number; risk?: string }[] };
   const [allocResult, setAllocResult] = useState<AllocOut | null>(null);
   const [allocating, setAllocating]   = useState(false);
+
+  // ── Band AI room ──
+  const [bandRoomId, setBandRoomId] = useState<string | null>(null);
+  const [bandMessages, setBandMessages] = useState<Array<{ id: string; content: string; senderName: string | null; senderType: string; insertedAt: string | null }>>([]);
+  const [bandError, setBandError] = useState<string | null>(null);
+  const bandPollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  // On mount: get or create the Band room for this workflow
+  useEffect(() => {
+    let cancelled = false;
+    const init = async () => {
+      try {
+        const res = await fetch("/api/band/workflow-room", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ workflowId }),
+        });
+        if (!res.ok) return;
+        const d = await res.json() as { roomId?: string };
+        if (d.roomId && !cancelled) setBandRoomId(d.roomId);
+      } catch { /* Band not configured */ }
+    };
+    void init();
+    return () => { cancelled = true; };
+  }, [workflowId]);
+
+  // Poll Band room messages every 5 seconds when running
+  useEffect(() => {
+    if (!bandRoomId || live.phase === "idle") {
+      if (bandPollRef.current) { clearInterval(bandPollRef.current); bandPollRef.current = null; }
+      return;
+    }
+    const poll = async () => {
+      try {
+        const res = await fetch(`/api/band/messages?roomId=${encodeURIComponent(bandRoomId)}&page=1`);
+        if (!res.ok) return;
+        const d = await res.json() as { messages?: Array<{ id: string; content: string; senderName: string | null; senderType: string; insertedAt: string | null }> };
+        if (d.messages) setBandMessages(d.messages);
+      } catch { /* ignore */ }
+    };
+    void poll();
+    bandPollRef.current = setInterval(poll, 5000);
+    return () => { if (bandPollRef.current) { clearInterval(bandPollRef.current); bandPollRef.current = null; } };
+  }, [bandRoomId, live.phase]);
+
+  // After orchestration starts, also trigger Band room (non-blocking)
+  useEffect(() => {
+    if (live.phase !== "scouting" || !bandRoomId) return;
+    // Send the initial task to the Band room (fire-and-forget) so agents start working
+    void (async () => {
+      try {
+        await fetch("/api/band/launch-workflow", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            roomId: bandRoomId,
+            prompt: workflow?.prompt ?? "",
+            scenario: "yield-farm",
+          }),
+        });
+      } catch { /* non-fatal */ }
+    })();
+  }, [live.phase, bandRoomId, workflow]);
   // Per-protocol executors carry typeConfig.protocols — only then is a split possible.
   const canAllocate = agents.filter(a =>
     Array.isArray((a as { typeConfig?: { protocols?: string[] } }).typeConfig?.protocols) &&
@@ -1136,7 +1322,7 @@ export default function WorkflowDetailPage() {
               onClick={() => setTab(t)}
               style={{
                 padding: "5px 11px", borderRadius: 5,
-                background: tab === t ? "rgba(20,21,16,0.08)" : "transparent",
+                background: tab === t ? "rgba(164,110,219,0.10)" : "transparent",
                 border: "none", color: tab === t ? TEXT : MID,
                 fontSize: 11.5, cursor: "pointer", letterSpacing: "-0.005em",
                 display: "inline-flex", alignItems: "center", gap: 5,
@@ -1230,7 +1416,7 @@ export default function WorkflowDetailPage() {
             proOptions={{ hideAttribution: true }}
             style={{ background: "transparent" }}
           >
-            <Background variant={BackgroundVariant.Dots} gap={24} size={1} color="rgba(20,21,16,0.08)" />
+            <Background variant={BackgroundVariant.Dots} gap={24} size={1} color="rgba(164,110,219,0.10)" />
             <FitViewOnLoad nodeCount={nodes.length} />
           </ReactFlow>
           {agents.length === 0 && (
@@ -1269,7 +1455,7 @@ export default function WorkflowDetailPage() {
                     ))}
                   </div>
                   <div style={{ fontSize: 10.5, color: MID, marginTop: 10 }}>
-                    {allocResult.source === "venice" ? "Decided by Venice from live yields" : "Equal split (fallback)"} · each % is now an on-chain cap
+                    {allocResult.source === "venice" ? "Decided by Featherless AI from live yields" : "Equal split (fallback)"} · each % is now an on-chain cap
                   </div>
                 </>
               )}
@@ -1282,7 +1468,17 @@ export default function WorkflowDetailPage() {
         <section style={{ overflowY: "auto", padding: "28px 40px", maxWidth: isCopyDesk ? 760 : 720, width: "100%" }}>
           {isCopyDesk
             ? <CopyDeskView workflow={workflow} agents={agents} runs={runs} />
-            : <AgentConversationTimeline live={live} history={handoffs} agents={agents} />}
+            : (
+              <div style={{ display: "flex", flexDirection: "column", gap: 0 }}>
+                <AgentConversationTimeline live={live} history={handoffs} agents={agents} />
+                <BandAIView
+                  bandRoomId={bandRoomId}
+                  bandMessages={bandMessages}
+                  bandError={bandError}
+                  prompt={workflow?.prompt ?? ""}
+                />
+              </div>
+            )}
         </section>
       )}
 

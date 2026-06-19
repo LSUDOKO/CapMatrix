@@ -31,9 +31,9 @@ const jetbrainsMono = JetBrains_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "CLOVE — Autonomous capital, quietly.",
+  title: "CapMatrix — Band AI Hackathon · Multi-Agent DeFi on Base",
   description:
-    "AI agents that research markets, pay for intelligence, and execute onchain strategies autonomously. One ERC-7715 permission. Fully non-custodial.",
+    "CapMatrix is a Band-powered multi-agent orchestration platform for DeFi on Base. Scouts research, Risk Monitors enforce caps, and Executors trade — all coordinated through Band chat rooms. Built for the Band AI Hackathon.",
 };
 
 export default function RootLayout({

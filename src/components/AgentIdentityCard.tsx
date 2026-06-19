@@ -3,14 +3,18 @@
 import React, { useEffect, useState } from "react";
 
 const ACCENT = "#A46EDB";
-const INK    = "#ECE8DE";
-const INK_1  = "#FFFFFF";
-const TEXT   = "#1B1C16";
-const TEXT2  = "#56564B";
-const MID    = "#8C8B7E";
-const MID_2  = "#6E6D61";
-const LINE   = "rgba(20,21,16,0.08)";
-const LINE_MID = "rgba(20,21,16,0.14)";
+const ACCENT_TX = "#A46EDB";
+const ACCENT_SOFT = "rgba(164,110,219,0.18)";
+const INK    = "#000";
+const INK_1  = "#0B0018";
+const INK_2  = "#1A0033";
+const INK_3  = "#200D42";
+const TEXT   = "#F0EDF5";
+const TEXT2  = "#D4C4EC";
+const MID    = "#8A7CB8";
+const MID_2  = "#9A8CC6";
+const LINE   = "rgba(180,140,222,0.08)";
+const LINE_MID = "rgba(180,140,222,0.15)";
 
 interface AgentStats {
   address:             string;
@@ -304,7 +308,7 @@ function DelegationSection({ agent }: { agent: Agent }) {
           border: "1px solid rgba(144,142,129,0.2)",
           fontSize: 11.5, color: MID_2, lineHeight: 1.5,
         }}>
-          This agent was created without a real MetaMask permission.
+          This agent was created without a real on-chain permission.
           Click <strong style={{ color: TEXT }}>🔑 Grant ERC-7715</strong> in the top bar to activate real on-chain execution.
         </div>
       )}

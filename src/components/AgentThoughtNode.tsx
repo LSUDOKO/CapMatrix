@@ -480,7 +480,7 @@ function MediaNode({ content }: { content: Record<string, unknown> }) {
         // eslint-disable-next-line @next/next/no-img-element
         <img src={imageUrl} alt="agent art" style={{ marginTop: 8, width: "100%", borderRadius: 8, border: `1px solid ${LINE}`, display: "block" }} />
       )}
-      <div style={{ fontSize: 10, color: MID, marginTop: 6, letterSpacing: "0.04em" }}>via Venice</div>
+      <div style={{ fontSize: 10, color: MID, marginTop: 6, letterSpacing: "0.04em" }}>via Featherless AI</div>
     </>
   );
 }

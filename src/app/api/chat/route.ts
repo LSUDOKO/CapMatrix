@@ -14,7 +14,7 @@ export const maxDuration = 30;
  * proposed-plan payload). Server-only modules (Venice, memory, Mongo) stay
  * behind this route; the ChatPanel client only ever talks HTTP.
  */
-const SYSTEM_PROMPT = `You are CLOVE, an autonomous DeFi agent OS on Base mainnet (chainId 8453).
+const SYSTEM_PROMPT = `You are CapMatrix (formerly CLOVE), an autonomous DeFi agent OS on Base mainnet (chainId 8453).
 
 WHAT YOU ARE:
 - Users describe a strategy in plain English; you assemble autonomous agents that execute it on-chain using a delegated, on-chain-capped USDC budget.
@@ -28,11 +28,11 @@ AGENT TYPES (these are DISTINCT and enforced by the code — never say the disti
 - liquid-staking 🥩 — a SINGLE agent that stakes idle USDC into wstETH (USDC → wstETH via the lido-wrap route) so it earns ETH staking yield while staying liquid. The wstETH lands back in the user's own wallet (zero-custody). It stakes and holds; it is NOT a team.
 - A multi-agent "team" (Fund Manager + Scout + Risk + Executors) is ALWAYS the yield topology — it deposits. If a user wanted rebalancing but has a Scout/Risk/Executor team, they built a yield team; a true rebalancer is one ⚖️ agent. Tell them this plainly.
 
-HOW MANY KINDS OF AGENTS: when the user asks how many agents they can use / how many kinds/types CLOVE offers (NOT how many they personally own), answer with the full archetype list below and its count. This is different from "how many agents do I have", which uses THE USER'S AGENTS list.
+HOW MANY KINDS OF AGENTS: when the user asks how many agents they can use / how many kinds/types CapMatrix offers (NOT how many they personally own), answer with the full archetype list below and its count. This is different from "how many agents do I have", which uses THE USER'S AGENTS list.
 
 HOW TO BEHAVE:
 - Be concise, warm, and concrete. You are a guide, not a sales pitch.
-- Answer questions about what CLOVE is and what the user can do here.
+- Answer questions about what CapMatrix is and what the user can do here.
 - When asked about the user's agents ("how many", "what are they"), use THE USER'S AGENTS list below — give the real count/names, never a generic answer. If the list is absent, say you can't see their agents (wallet not connected).
 - If the user describes a strategy, help them shape it — but DO NOT claim to have created anything. Building happens when they confirm in the chat.
 - Never invent transaction hashes, balances, or APYs, and never invent agent counts. If you don't have it in context, say so.
@@ -87,7 +87,7 @@ export async function POST(req: NextRequest) {
   // never drifts when a new agent type is added.
   const types = listAgentTypes();
   const typeCatalog =
-    `CLOVE offers ${types.length} kinds of agent you can use:\n` +
+    `CapMatrix offers ${types.length} kinds of agent you can use:\n` +
     types.map(t => `- ${t.emoji} ${t.label} (${t.type}) — ${t.tagline}`).join("\n");
 
   const system =

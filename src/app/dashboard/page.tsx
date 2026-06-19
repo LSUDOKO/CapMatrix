@@ -19,6 +19,7 @@ import "@xyflow/react/dist/style.css";
 import {
   Plus, LayoutDashboard, Workflow as WorkflowIcon, BarChart2,
   DollarSign, BookUser, Sparkles, Shield, ChevronDown, X, Clock, Trash2,
+  Radio,
 } from "lucide-react";
 import { usePrivy } from "@privy-io/react-auth";
 import { metamaskStore } from "@/lib/web3/metamaskStore";
@@ -27,7 +28,7 @@ import ChatPanel from "@/components/ChatPanel";
 import DelegationChainPanel from "@/components/DelegationChainPanel";
 import PermissionReportPanel from "@/components/PermissionReportPanel";
 import PortfolioPanel from "@/components/PortfolioPanel";
-import { BaseLogo, MetaMaskLogo } from "@/components/BrandLogos";
+import { MetaMaskLogo } from "@/components/BrandLogos";
 
 // ─────────────────────────────────────────────────────────────────────────────
 //  Design tokens — single source of truth (light "paper" theme)
@@ -179,7 +180,7 @@ function AgentNode({
   // Editorial accent-bar / status motif: lime when active, amber when thinking,
   // faint ink when idle. The single signature element of every node.
   const isThinking = status === "planning" || status === "reflecting";
-  const barColor   = status === "idle" ? "rgba(27,29,24,0.22)" : isThinking ? AMBER : isLive ? ACCENT : "rgba(27,29,24,0.22)";
+  const barColor   = status === "idle" ? "rgba(164,110,219,0.12)" : isThinking ? AMBER : isLive ? ACCENT : "rgba(164,110,219,0.12)";
 
   return (
     <div
@@ -217,7 +218,7 @@ function AgentNode({
             )}
           </span>
           <span style={{ fontSize: 9.5, color: MID, letterSpacing: "0.04em", textTransform: "uppercase" }}>
-            {isFundManager ? "Holds MetaMask grant" : "AI Agent"}
+            {isFundManager ? "Holds Band delegation" : "AI Agent"}
           </span>
         </div>
         <div style={{ display: "flex", alignItems: "center", gap: 5, fontSize: 9.5, color: isThinking ? "#a06a00" : isLive ? ACCENT_TX : MID, letterSpacing: "0.06em", textTransform: "lowercase" }}>
@@ -251,7 +252,7 @@ function AgentNode({
             <span key={p} style={{
               display: "inline-flex", alignItems: "center", gap: 4,
               padding: "2px 7px", borderRadius: 4,
-              background: "rgba(20,21,16,0.05)",
+              background: "rgba(180,140,222,0.08)",
               border: `1px solid ${PROTOCOL_DOT_COLORS[p] ?? MID}33`,
               fontSize: 9.5, color: TEXT2, letterSpacing: "0.04em", textTransform: "lowercase",
             }}>
@@ -320,7 +321,7 @@ function AgentNode({
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: 5, fontSize: 9.5, color: MID, letterSpacing: "0.04em", textTransform: "lowercase" }}>
         <span>
           {data.delegationStatus === "active" && isReal && (
-            <span style={{ color: ACCENT_TX }}>● real on-chain{data.delegationCap ? ` · ${data.delegationCap}` : ""}</span>
+            <span style={{ color: ACCENT_TX }}>real on-chain{data.delegationCap ? ` · ${data.delegationCap}` : ""}</span>
           )}
           {data.delegationStatus === "active" && !isReal && (
             <button
@@ -328,7 +329,7 @@ function AgentNode({
               style={{ background: "transparent", border: "none", cursor: "pointer", color: TEXT2, fontSize: 9.5, padding: 0, letterSpacing: "0.04em" }}
               title="No real permission — click to grant ERC-7715 permission"
             >
-              ● needs permission · grant to run →
+needs permission · grant to run →
             </button>
           )}
           {data.delegationStatus === "pending" && (
@@ -337,10 +338,10 @@ function AgentNode({
               style={{ background: "transparent", border: "none", cursor: "pointer", color: "#FFD166", fontSize: 9.5, padding: 0, letterSpacing: "0.04em" }}
               title="Sub-delegation pending — click to re-grant permission"
             >
-              ● pending · re-grant →
+pending · re-grant →
             </button>
           )}
-          {data.delegationStatus === "revoked" && <span style={{ color: MID }}>● revoked</span>}
+          {data.delegationStatus === "revoked" && <span style={{ color: MID }}>revoked</span>}
           {(!data.delegationStatus || data.delegationStatus === "none") && (
             <button
               onClick={(e) => { e.stopPropagation(); data.onDelegate(); }}
@@ -374,7 +375,7 @@ function AgentNode({
             onMouseEnter={(e) => { e.currentTarget.style.color = "#FF4545"; }}
             onMouseLeave={(e) => { e.currentTarget.style.color = "rgba(255,69,69,0.5)"; }}
           >
-            ✕
+            <X size={10} />
           </button>
         </div>
       </div>
@@ -387,6 +388,108 @@ function AgentNode({
 // NODE_TYPES must be defined outside component for performance
 const NODE_TYPES: NodeTypes = { agent: AgentNode };
 
+
+// ── Band AI Rooms List (sidebar) ─────────────────────────────────────────────
+function BandRoomsList() {
+  const [rooms, setRooms] = useState<Array<{ id: string; name: string | null }>>([]);
+  const [expanded, setExpanded] = useState(false);
+  const [loading, setLoading] = useState(false);
+  const router = useRouter();
+
+  const fetchRooms = useCallback(async () => {
+    setLoading(true);
+    try {
+      const res = await fetch("/api/band/rooms");
+      if (!res.ok) return;
+      const d = await res.json() as { rooms?: Array<{ id: string; name: string | null }> };
+      setRooms(d.rooms ?? []);
+    } catch { /* Band not configured */ } finally { setLoading(false); }
+  }, []);
+
+  useEffect(() => {
+    if (expanded && rooms.length === 0) fetchRooms();
+  }, [expanded, rooms.length, fetchRooms]);
+
+  if (!expanded) {
+    return (
+      <button
+        onClick={() => setExpanded(true)}
+        style={{
+          display: "flex", alignItems: "center", gap: 8,
+          padding: "6px 12px", borderRadius: 7, width: "100%",
+          background: "rgba(34,197,94,0.04)", border: `1px solid rgba(34,197,94,0.15)`,
+          color: "#22c55e", fontSize: 11.5, cursor: "pointer",
+          letterSpacing: "0.02em",
+        }}
+      >
+        <Radio size={12} />
+        Band AI rooms
+      </button>
+    );
+  }
+
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+      <div style={{
+        display: "flex", alignItems: "center", justifyContent: "space-between",
+        fontSize: 9.5, color: "#22c55e", letterSpacing: "0.04em", textTransform: "uppercase",
+      }}>
+        <span style={{ display: "inline-flex", alignItems: "center", gap: 5 }}>
+          <Radio size={10} />
+          Band rooms
+          <span style={{ color: MID, fontWeight: 400, textTransform: "none" }}>({rooms.length})</span>
+        </span>
+        <button
+          onClick={() => { setExpanded(false); }}
+          style={{ background: "transparent", border: "none", color: MID, cursor: "pointer", fontSize: 10 }}
+        >
+          <ChevronDown size={12} />
+        </button>
+      </div>
+
+      {loading && (
+        <div style={{ fontSize: 10, color: MID, padding: "4px 0", fontStyle: "italic" }}>
+          Loading…
+        </div>
+      )}
+
+      {!loading && rooms.length === 0 && (
+        <button
+          onClick={fetchRooms}
+          style={{
+            display: "block", width: "100%", textAlign: "left",
+            padding: "6px 10px", borderRadius: 6, fontSize: 10.5,
+            background: "transparent", border: `1px solid ${LINE_MID}`,
+            color: MID, cursor: "pointer",
+          }}
+        >
+          Refresh · no rooms yet
+        </button>
+      )}
+
+      {rooms.map(r => (
+        <button
+          key={r.id}
+          onClick={() => router.push(`/dashboard/band-room/${r.id}`)}
+          style={{
+            display: "flex", alignItems: "center", gap: 6, width: "100%", textAlign: "left",
+            padding: "6px 10px", borderRadius: 6,
+            background: "transparent", border: `1px solid transparent`,
+            color: TEXT2, fontSize: 11.5, cursor: "pointer",
+            transition: "all .1s",
+          }}
+          onMouseEnter={(e) => { e.currentTarget.style.background = "rgba(34,197,94,0.06)"; e.currentTarget.style.borderColor = "rgba(34,197,94,0.15)"; }}
+          onMouseLeave={(e) => { e.currentTarget.style.background = "transparent"; e.currentTarget.style.borderColor = "transparent"; }}
+        >
+          <span style={{ width: 6, height: 6, borderRadius: "50%", background: "#22c55e", flexShrink: 0 }} />
+          <span style={{ overflow: "hidden", textOverflow: "ellipsis" }}>
+            {r.name || r.id.slice(0, 14) + "…"}
+          </span>
+        </button>
+      ))}
+    </div>
+  );
+}
 
 // ─────────────────────────────────────────────────────────────────────────────
 //  Dashboard page
@@ -542,7 +645,7 @@ const loadAgents = useCallback(async () => {
           if (!res.ok) throw new Error(`HTTP ${res.status}`);
           setActiveWorkflowId(null);
           await loadAgents();
-          toast("Workflow deleted ✓", "success");
+          toast("Workflow deleted", "success");
         } catch (e) {
           toast("Delete failed: " + (e instanceof Error ? e.message : String(e)), "error");
         } finally { setDeletingWf(false); }
@@ -591,8 +694,8 @@ const loadAgents = useCallback(async () => {
           // `active` class → the globals clvDash animation marches the dashes.
           className: isActive ? "active" : undefined,
           style: isActive
-            ? { stroke: "#5a7a00", strokeWidth: 1.8, strokeDasharray: "3 7" }
-            : { stroke: "rgba(27,29,24,0.38)", strokeWidth: 1.4, strokeDasharray: "3 6" },
+            ? { stroke: "#A46EDB", strokeWidth: 1.8, strokeDasharray: "3 7" }
+            : { stroke: "rgba(164,110,219,0.20)", strokeWidth: 1.4, strokeDasharray: "3 6" },
         });
       }
     }
@@ -680,7 +783,7 @@ const loadAgents = useCallback(async () => {
         });
         const ad = await alloc.json() as { allocated?: number };
         await loadAgents();
-        if ((ad.allocated ?? 0) > 0) toast(`${ad.allocated} worker${ad.allocated! > 1 ? "s" : ""} on-chain-capped ✓`, "success");
+        if ((ad.allocated ?? 0) > 0) toast(`${ad.allocated} worker${ad.allocated! > 1 ? "s" : ""} on-chain-capped`, "success");
         return;
       }
     } catch { /* fall through to flat binding */ }
@@ -720,7 +823,7 @@ const loadAgents = useCallback(async () => {
     }
     if (bound > 0) {
       await loadAgents();
-      toast(`${bound} agent${bound > 1 ? "s are" : " is"} now live with real permission ✓`, "success");
+      toast(`${bound} agent${bound > 1 ? "s are" : " is"} now live with real permission`, "success");
     }
   }, [agents, loadAgents, toast]);
 
@@ -735,6 +838,15 @@ const loadAgents = useCallback(async () => {
       : null;
     if (!target) { toast("Select a workflow to run (solo agents run individually).", "info"); return; }
     setTeamRunning(true);
+    
+    // Pre-create the Band room so agents start responding immediately
+    // when the orchestration triggers them. Fire-and-forget — never blocks run.
+    fetch("/api/band/workflow-room", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ workflowId: target }),
+    }).catch(() => {});
+    
     router.push(`/dashboard/workflow/${target}?run=1`);
   }, [effectiveWorkflowId, router, toast]);
 
@@ -804,12 +916,12 @@ const loadAgents = useCallback(async () => {
             });
             const ad = await alloc.json() as { allocated?: number };
             await loadAgents();
-            toast(`Team live · ${ad.allocated ?? 0} workers on-chain-capped ✓`, "success");
+            toast(`Team live · ${ad.allocated ?? 0} workers on-chain-capped`, "success");
           } else {
             // Grant to the Fund Manager + allocate per-worker capped budgets.
             const n = await metamaskStore.requestFundManagerGrant(budget, 90);
             await loadAgents();
-            if (n && n > 0) toast(`Team live · Fund Manager capped ${n} workers on-chain ✓`, "success");
+            if (n && n > 0) toast(`Team live · Fund Manager capped ${n} workers on-chain`, "success");
             else            toast("Grant the Fund Manager permission to activate the team.", "info");
           }
         } catch (e) {
@@ -820,7 +932,7 @@ const loadAgents = useCallback(async () => {
         setPostCreatePermOpen(true);   // single agent → Step 3 relayer grant
       } else {
         await bindPermissionToPendingAgents();
-        toast("Agent created and activated ✓", "success");
+        toast("Agent created and activated", "success");
       }
     } catch (e) {
       toast("Failed to create agent: " + (e instanceof Error ? e.message : String(e)), "error");
@@ -863,48 +975,51 @@ const loadAgents = useCallback(async () => {
         height: "100vh",
         width: "100vw",
         display: "grid",
-        gridTemplateColumns: "232px 1fr",
-        gridTemplateRows: "48px 1fr",
+        gridTemplateColumns: "250px 1fr",
+        gridTemplateRows: "52px 1fr",
         gridTemplateAreas: `"side top" "side canvas"`,
         overflow: "hidden",
         fontFamily: "var(--sans)",
       }}
     >
       {/* ── Sidebar ── */}
-      <aside style={{ gridArea: "side", borderRight: `1px solid ${LINE}`, padding: "18px 14px", display: "flex", flexDirection: "column", gap: 24 }}>
+      <aside style={{ gridArea: "side", borderRight: `1px solid ${LINE}`, padding: "20px 16px", display: "flex", flexDirection: "column", gap: 28 }}>
         <Brand />
 
-        <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+        <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
           <button
             onClick={startNewChat}
             style={{
-              display: "flex", alignItems: "center", justifyContent: "center", gap: 9,
-              padding: "10px 12px", borderRadius: 9,
+              display: "flex", alignItems: "center", justifyContent: "center", gap: 10,
+              padding: "12px 20px", borderRadius: 9999,
               background: ACCENT, color: INK,
               border: "none",
-              fontWeight: 600, fontSize: 13, letterSpacing: "-0.005em",
+              fontWeight: 600, fontSize: 14, letterSpacing: "-0.01em",
               cursor: "pointer",
               transition: "transform .2s, box-shadow .2s",
             }}
-            onMouseEnter={(e) => { e.currentTarget.style.transform = "translateY(-1px)"; e.currentTarget.style.boxShadow = `0 6px 16px -4px ${ACCENT_GLOW}`; }}
+            onMouseEnter={(e) => { e.currentTarget.style.transform = "translateY(-2px)"; e.currentTarget.style.boxShadow = `0 8px 20px -6px ${ACCENT_GLOW}`; }}
             onMouseLeave={(e) => { e.currentTarget.style.transform = "translateY(0)";    e.currentTarget.style.boxShadow = "none"; }}
           >
-            <Plus size={14} strokeWidth={2.5} /> New workflow
+            <Plus size={16} strokeWidth={2.5} /> New workflow
           </button>
           <button
             onClick={() => setCreating(true)}
             style={{
-              padding: "7px 12px", borderRadius: 7,
+              padding: "10px 16px", borderRadius: 9999,
               background: "transparent", color: TEXT2,
               border: `1px solid ${LINE_MID}`,
-              fontSize: 11.5, cursor: "pointer", letterSpacing: "-0.005em",
+              fontSize: 13, cursor: "pointer", letterSpacing: "-0.005em",
+              transition: "transform .2s, border-color .2s",
             }}
+            onMouseEnter={(e) => { e.currentTarget.style.borderColor = ACCENT; e.currentTarget.style.transform = "translateY(-1px)"; }}
+            onMouseLeave={(e) => { e.currentTarget.style.borderColor = LINE_MID; e.currentTarget.style.transform = "translateY(0)"; }}
           >
             + Solo agent (no workflow)
           </button>
         </div>
 
-        <nav style={{ display: "flex", flexDirection: "column", gap: 1 }}>
+        <nav style={{ display: "flex", flexDirection: "column", gap: 2 }}>
           <NavItem icon={LayoutDashboard} label="Hub"          active />
           <NavItem icon={WorkflowIcon}    label="Agents"       count={agents.length} />
           <NavItem
@@ -918,20 +1033,25 @@ const loadAgents = useCallback(async () => {
 
         <div style={{ flex: 1 }} />
 
-        <div style={{ display: "flex", gap: 14, padding: "0 6px", fontSize: 11, color: MID, letterSpacing: "0.04em" }}>
-          <a href="#">Docs</a><a href="#">Discord</a><a href="#">Status</a>
+        {/* Band AI rooms */}
+        <BandRoomsList />
+
+        <div style={{ display: "flex", gap: 16, padding: "0 6px", fontSize: 12, color: MID, letterSpacing: "0.04em" }}>
+          <a href="#" style={{ textDecoration: "none", color: MID, transition: "color .2s" }} onMouseEnter={(e) => e.currentTarget.style.color = TEXT} onMouseLeave={(e) => e.currentTarget.style.color = MID}>Docs</a>
+          <a href="#" style={{ textDecoration: "none", color: MID, transition: "color .2s" }} onMouseEnter={(e) => e.currentTarget.style.color = TEXT} onMouseLeave={(e) => e.currentTarget.style.color = MID}>Discord</a>
+          <a href="#" style={{ textDecoration: "none", color: MID, transition: "color .2s" }} onMouseEnter={(e) => e.currentTarget.style.color = TEXT} onMouseLeave={(e) => e.currentTarget.style.color = MID}>Status</a>
         </div>
       </aside>
 
       {/* ── Top bar ── */}
-      <header style={{ gridArea: "top", display: "flex", alignItems: "center", borderBottom: `1px solid ${LINE}`, padding: "0 16px", gap: 14 }}>
-        <span style={{ display: "inline-flex", alignItems: "center", gap: 8, fontSize: 12.5, color: TEXT }}>
+      <header style={{ gridArea: "top", display: "flex", alignItems: "center", borderBottom: `1px solid ${LINE}`, padding: "0 20px", gap: 16 }}>
+        <span style={{ display: "inline-flex", alignItems: "center", gap: 8, fontSize: 13.5, color: TEXT, letterSpacing: "-0.01em" }}>
           <span style={{ width: 8, height: 8, borderRadius: 2, background: ACCENT }} />
           Workspace
         </span>
-        <span style={{ color: MID, fontSize: 12, opacity: 0.5 }}>/</span>
-        <span style={{ fontSize: 13, fontWeight: 500, color: TEXT }}>Agents</span>
-        <span style={{ fontSize: 11, color: MID, letterSpacing: "0.06em" }}>· {agents.length} active</span>
+        <span style={{ color: MID, fontSize: 13, opacity: 0.5 }}>/</span>
+        <span style={{ fontSize: 14, fontWeight: 500, color: TEXT, letterSpacing: "-0.01em" }}>Agents</span>
+        <span style={{ fontSize: 12, color: MID, letterSpacing: "0.06em" }}>· {agents.length} active</span>
 
         {/* Workflow switcher — each workflow is its own canvas */}
         {workflowList.length > 1 && (
@@ -974,58 +1094,80 @@ const loadAgents = useCallback(async () => {
 
         <div style={{ flex: 1 }} />
 
-        {/* One-click team run */}
-        <button
-          onClick={runTeam}
-          disabled={teamRunning}
-          title="Run the whole workflow once: Fund Manager → specialized workers"
-          style={{
-            display: "inline-flex", alignItems: "center", gap: 6,
-            padding: "5px 12px", borderRadius: 6,
-            background: "rgba(164,110,219,0.1)",
-            border: `1px solid rgba(164,110,219,0.3)`,
-            color: ACCENT_TX,
-            fontSize: 11.5, cursor: teamRunning ? "not-allowed" : "pointer",
-            opacity: teamRunning ? 0.6 : 1, fontWeight: 500, letterSpacing: "0.02em",
-          }}
-        >
-          {teamRunning ? "▶ Running…" : "▶ Run Team"}
-        </button>
+        {/* ── Control bar ── */}
+        <div style={{
+          display: "inline-flex", alignItems: "center", gap: 4,
+          background: INK_1, borderRadius: 10,
+          border: `1px solid ${LINE_MID}`,
+          padding: "4px 6px",
+        }}>
+          {/* Run Team */}
+          <button
+            onClick={runTeam}
+            disabled={teamRunning}
+            title="Run the whole workflow once"
+            style={{
+              display: "inline-flex", alignItems: "center", gap: 7,
+              padding: "6px 14px", borderRadius: 7,
+              background: "rgba(164,110,219,0.1)",
+              border: "none",
+              color: ACCENT_TX,
+              fontSize: 12.5, cursor: teamRunning ? "not-allowed" : "pointer",
+              opacity: teamRunning ? 0.6 : 1, fontWeight: 600,
+              transition: "all .2s",
+            }}
+            onMouseEnter={(e) => { if (!teamRunning) { e.currentTarget.style.background = ACCENT; e.currentTarget.style.color = INK; } }}
+            onMouseLeave={(e) => { if (!teamRunning) { e.currentTarget.style.background = "rgba(164,110,219,0.1)"; e.currentTarget.style.color = ACCENT_TX; } }}
+          >
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polygon points="5 3 19 12 5 21 5 3"/></svg>
+            {teamRunning ? "Running…" : "Run"}
+          </button>
 
-        {/* Permission button — ALWAYS visible (IMP-3: shows expiry countdown) */}
-        <button
-          onClick={() => setPermGrantOpen(true)}
-          title={permDaysLeft !== null ? `Permission expires in ${permDaysLeft} days` : undefined}
-          style={{
-            display: "inline-flex", alignItems: "center", gap: 7,
-            padding: "5px 12px", borderRadius: 6,
-            background: !hasPermission ? "rgba(164,110,219,0.12)"
-              : permDaysLeft === 0   ? "rgba(255,69,69,0.12)"
-              : permExpirySoon       ? "rgba(255,210,60,0.1)"
-              :                        "rgba(164,110,219,0.06)",
-            border: `1px solid ${!hasPermission ? "rgba(164,110,219,0.3)"
-              : permDaysLeft === 0   ? "rgba(255,69,69,0.4)"
-              : permExpirySoon       ? "rgba(255,210,60,0.3)"
-              :                        "rgba(164,110,219,0.18)"}`,
-            color: !hasPermission    ? ACCENT_TX
-              : permDaysLeft === 0   ? "#C2410C"
-              : permExpirySoon       ? "#B45309"
-              :                        TEXT2,
-            fontSize: 11.5, cursor: "pointer",
-            letterSpacing: "0.02em", fontWeight: 500,
-          }}
-        >
-          {!hasPermission      ? "🔑 Grant ERC-7715"
-          : permDaysLeft === 0 ? "🔑 Permission expired"
-          : permExpirySoon     ? `🔑 ${permDaysLeft}d left`
-          :                      `🔑 ${permDaysLeft !== null ? `${permDaysLeft}d` : "active"}`}
-        </button>
-        <TelegramLinkChip />
-        <ConnectChip />
+          <div style={{ width: 1, height: 20, background: LINE }} />
+
+          {/* Permission */}
+          <button
+            onClick={() => setPermGrantOpen(true)}
+            title={permDaysLeft !== null ? `Permission expires in ${permDaysLeft} days` : undefined}
+            style={{
+              display: "inline-flex", alignItems: "center", gap: 7,
+              padding: "6px 12px", borderRadius: 7, border: "none",
+              background: !hasPermission ? "rgba(164,110,219,0.08)"
+                : permDaysLeft === 0   ? "rgba(255,69,69,0.08)"
+                : permExpirySoon       ? "rgba(255,210,60,0.06)"
+                :                        "transparent",
+              color: !hasPermission    ? ACCENT_TX
+                : permDaysLeft === 0   ? "#C2410C"
+                : permExpirySoon       ? "#B45309"
+                :                        TEXT2,
+              fontSize: 12, cursor: "pointer",
+              fontWeight: !hasPermission ? 600 : 500,
+              transition: "all .2s",
+            }}
+            onMouseEnter={(e) => { e.currentTarget.style.background = "rgba(164,110,219,0.12)"; }}
+            onMouseLeave={(e) => { const bg = !hasPermission ? "rgba(164,110,219,0.08)" : permDaysLeft === 0 ? "rgba(255,69,69,0.08)" : permExpirySoon ? "rgba(255,210,60,0.06)" : "transparent"; e.currentTarget.style.background = bg; }}
+          >
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
+            {!hasPermission      ? "Grant permission"
+            : permDaysLeft === 0 ? "Expired"
+            : permExpirySoon     ? `${permDaysLeft}d left`
+            :                     `${permDaysLeft !== null ? `${permDaysLeft}d` : "Active"}`}
+          </button>
+
+          <div style={{ width: 1, height: 20, background: LINE }} />
+
+          {/* Telegram */}
+          <TelegramLinkChip />
+
+          <div style={{ width: 1, height: 20, background: LINE }} />
+
+          {/* Connect */}
+          <ConnectChip />
+        </div>
       </header>
 
       {/* ── Canvas ── */}
-      <section style={{ gridArea: "canvas", position: "relative", overflow: "hidden" }}>
+      <section style={{ gridArea: "canvas", position: "relative", overflow: "hidden", background: "linear-gradient(135deg, #000 0%, #0B0018 50%, #000 100%)" }}>
         <ReactFlow
           nodes={nodes}
           edges={edges}
@@ -1037,7 +1179,7 @@ const loadAgents = useCallback(async () => {
           proOptions={{ hideAttribution: true }}
           style={{ background: "transparent" }}
         >
-          <Background variant={BackgroundVariant.Dots} gap={24} size={1} color="rgba(20,21,16,0.06)" />
+          <Background variant={BackgroundVariant.Dots} gap={24} size={1} color="rgba(164,110,219,0.06)" />
           {/* Fix 1: FitViewOnLoad fires after async load */}
           <FitViewOnLoad nodeCount={nodes.length} />
         </ReactFlow>
@@ -1170,7 +1312,7 @@ const loadAgents = useCallback(async () => {
             padding: "10px 16px", borderRadius: 8, fontSize: 12.5,
             background: t.type === "success" ? "rgba(164,110,219,0.15)"
                       : t.type === "error"   ? "rgba(255,69,69,0.15)"
-                      :                        "rgba(20,21,16,0.1)",
+                      :                        "rgba(0,0,0,0.3)",
             border: `1px solid ${t.type === "success" ? "rgba(164,110,219,0.3)" : t.type === "error" ? "rgba(255,69,69,0.3)" : LINE_MID}`,
             color: t.type === "success" ? ACCENT_TX : t.type === "error" ? "#FF8A66" : TEXT,
             backdropFilter: "blur(8px)",
@@ -1187,7 +1329,7 @@ const loadAgents = useCallback(async () => {
       {confirmState && (
         <div
           onClick={() => setConfirmState(null)}
-          style={{ position: "fixed", inset: 0, zIndex: 400, background: "rgba(11,12,9,0.7)", backdropFilter: "blur(6px)", display: "flex", alignItems: "center", justifyContent: "center" }}
+          style={{ position: "fixed", inset: 0, zIndex: 400, background: "rgba(0,0,0,0.7)", backdropFilter: "blur(6px)", display: "flex", alignItems: "center", justifyContent: "center" }}
         >
           <div
             onClick={e => e.stopPropagation()}
@@ -1238,7 +1380,7 @@ function NewWorkflowModal({
       onClick={onClose}
       style={{
         position: "fixed", inset: 0, zIndex: 200,
-        background: "rgba(11,12,9,0.85)", backdropFilter: "blur(14px)",
+        background: "rgba(0,0,0,0.85)", backdropFilter: "blur(14px)",
         display: "flex", alignItems: "center", justifyContent: "center", padding: 24,
       }}
     >
@@ -1273,7 +1415,7 @@ function NewWorkflowModal({
                 What should your workflow do?
               </div>
               <div style={{ fontSize: 13, color: TEXT2, marginTop: 8, lineHeight: 1.5, maxWidth: "52ch" }}>
-                A workflow is a team of AI agents with a shared budget, schedule, and on-chain identity. Describe what you want in plain English — CLOVE will ask follow-up questions and build the team for you.
+                A workflow is a team of AI agents with a shared budget, schedule, and on-chain identity. Describe what you want in plain English — CapMatrix will ask follow-up questions and build the team for you.
               </div>
             </div>
             <button onClick={onClose} style={{ background: "transparent", border: "none", cursor: "pointer", color: MID, marginTop: 4 }}>
@@ -1293,7 +1435,7 @@ function NewWorkflowModal({
             placeholder="Find the highest safe yield on Base above 8% APY. Skip risky protocols. Notify me on Telegram daily."
             rows={4}
             style={{
-              width: "100%", background: "rgba(20,21,16,0.04)",
+              width: "100%", background: "rgba(180,140,222,0.06)",
               border: `1px solid ${LINE_MID}`, borderRadius: 11,
               color: TEXT, fontSize: 15, padding: "14px 16px",
               outline: "none", resize: "none", lineHeight: 1.5,
@@ -1323,7 +1465,7 @@ function NewWorkflowModal({
                   style={{
                     display: "flex", flexDirection: "column", alignItems: "flex-start", gap: 6,
                     padding: "12px 14px", borderRadius: 9,
-                    background: "rgba(20,21,16,0.03)",
+                    background: "rgba(180,140,222,0.04)",
                     border: `1px solid ${LINE_MID}`,
                     color: TEXT2, fontSize: 12, lineHeight: 1.4,
                     cursor: "pointer", textAlign: "left",
@@ -1410,7 +1552,7 @@ function ScheduleModal({
   return (
     <div
       onClick={onClose}
-      style={{ position: "fixed", inset: 0, zIndex: 200, background: "rgba(11,12,9,0.82)", backdropFilter: "blur(12px)", display: "flex", alignItems: "center", justifyContent: "center", padding: 24 }}
+      style={{ position: "fixed", inset: 0, zIndex: 200, background: "rgba(0,0,0,0.82)", backdropFilter: "blur(12px)", display: "flex", alignItems: "center", justifyContent: "center", padding: 24 }}
     >
       <div
         onClick={(e) => e.stopPropagation()}
@@ -1427,7 +1569,7 @@ function ScheduleModal({
         </div>
 
         <div style={{ fontSize: 12, color: TEXT2, lineHeight: 1.55 }}>
-          The CLOVE cron service runs every hour. When picked schedule elapses, the agent runs its full plan→execute→reflect→telegram loop automatically.
+          CapMatrix cron service runs every hour. When picked schedule elapses, the agent runs its full plan→execute→reflect→telegram loop automatically.
         </div>
 
         <div style={{ display: "flex", flexDirection: "column", gap: 7 }}>
@@ -1451,7 +1593,7 @@ function ScheduleModal({
                   <div style={{ fontSize: 13, fontWeight: 500 }}>{opt.label}</div>
                   <div style={{ fontSize: 10.5, color: MID, marginTop: 2 }}>{opt.desc}</div>
                 </div>
-                {sel && <span style={{ color: ACCENT_TX, fontSize: 14 }}>✓</span>}
+                {sel && <span style={{ color: ACCENT_TX, fontSize: 14 }}>·</span>}
               </button>
             );
           })}
@@ -1478,7 +1620,7 @@ function ScheduleModal({
 const NL_PRESET_GROUPS: Array<{ category: string; icon: string; examples: string[] }> = [
   {
     category: "Yield",
-    icon: "💰",
+    icon: "+",
     examples: [
       "Deposit my USDC into Morpho when APY > 8%, hold otherwise",
       "Find the highest safe yield on Base above 6% APY",
@@ -1487,7 +1629,7 @@ const NL_PRESET_GROUPS: Array<{ category: string; icon: string; examples: string
   },
   {
     category: "DCA",
-    icon: "🔁",
+    icon: "~",
     examples: [
       "DCA $5 into ETH every Monday via Uniswap, skip if gas > 2 gwei",
       "Buy $10 of WETH daily for 30 days, alert if price drops 5%",
@@ -1495,7 +1637,7 @@ const NL_PRESET_GROUPS: Array<{ category: string; icon: string; examples: string
   },
   {
     category: "Rebalancing",
-    icon: "⚖",
+    icon: "~",
     examples: [
       "Rebalance my USDC/ETH to 60/40 monthly on Aerodrome",
       "Keep my Morpho position above 8% APY — rebalance to Sky if it drops",
@@ -1503,7 +1645,7 @@ const NL_PRESET_GROUPS: Array<{ category: string; icon: string; examples: string
   },
   {
     category: "Risk monitoring",
-    icon: "🛡",
+    icon: "!",
     examples: [
       "Watch my Morpho deposit, withdraw if any HIGH risk signal",
       "Monitor Lido stETH peg — alert if depeg > 0.5%",
@@ -1511,7 +1653,7 @@ const NL_PRESET_GROUPS: Array<{ category: string; icon: string; examples: string
   },
   {
     category: "Multi-agent",
-    icon: "🤖",
+    icon: "*",
     examples: [
       "Create a 3-agent team: scout, risk monitor, executor on Base",
       "Build agents that vote in Compound governance on my behalf",
@@ -1552,7 +1694,7 @@ function HistoryDrawer({
             onClick={onRefresh}
             style={{ background: "transparent", border: "none", cursor: "pointer", color: MID, fontSize: 11, padding: "3px 6px" }}
           >
-            ↺ Refresh
+            Refresh
           </button>
           <button
             onClick={onClose}
@@ -1715,13 +1857,13 @@ function SessionAddressChip() {
           }}
         >
           <div style={{ fontSize: 10, color: MID, letterSpacing: "0.04em", textTransform: "uppercase", marginBottom: 8 }}>
-            CLOVE Agent Wallet (1Shot)
+            CapMatrix Agent Wallet (1Shot)
           </div>
           <div style={{ fontSize: 11, color: TEXT2, lineHeight: 1.6 }}>
-            This is CLOVE&apos;s server wallet on <strong style={{ color: TEXT }}>Base mainnet</strong>.
-            Your MetaMask wallet grants an ERC-7715 permission <em>to</em> this address —
+            This is CapMatrix&apos;s server wallet on <strong style={{ color: TEXT }}>Base mainnet</strong>.
+            Your wallet grants an ERC-7715 permission <em>to</em> this address —
             your USDC only moves when you approve the delegation.
-            CLOVE never holds your keys.
+            CapMatrix never holds your keys.
           </div>
           <div style={{ marginTop: 10, fontSize: 10.5, color: ACCENT_TX, fontFamily: "monospace", wordBreak: "break-all" }}>
             {addr}
@@ -1771,7 +1913,7 @@ function QuestionnaireModal({
       onClick={onClose}
       style={{
         position: "fixed", inset: 0, zIndex: 200,
-        background: "rgba(11,12,9,0.82)", backdropFilter: "blur(12px)",
+        background: "rgba(0,0,0,0.82)", backdropFilter: "blur(12px)",
         display: "flex", alignItems: "center", justifyContent: "center", padding: 24,
       }}
     >
@@ -1866,7 +2008,7 @@ function QuestionnaireModal({
                           cursor: "pointer", transition: "all .15s",
                         }}
                       >
-                        {sel ? "✓ " : ""}{opt}
+                        {sel ? "· " : ""}{opt}
                       </button>
                     );
                   })}
@@ -1898,7 +2040,7 @@ function QuestionnaireModal({
                   onChange={e => setAnswers(prev => ({ ...prev, [q.id]: e.target.value }))}
                   placeholder="Your answer…"
                   style={{
-                    width: "100%", background: "rgba(20,21,16,0.04)",
+                    width: "100%", background: "rgba(180,140,222,0.06)",
                     border: `1px solid ${LINE_MID}`, color: TEXT,
                     fontSize: 13, padding: "9px 11px", borderRadius: 7, outline: "none",
                     fontFamily: "var(--sans)",
@@ -1912,7 +2054,7 @@ function QuestionnaireModal({
         {/* Footer */}
         <div style={{ padding: "16px 28px", borderTop: `1px solid ${LINE}`, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
           <span style={{ fontSize: 11, color: MID }}>
-            {(answers.orchestration as string | undefined)?.includes("Multi") ? "⚡ Will create a Fund Manager → specialized workers (each on-chain-capped)" : ""}
+            {(answers.orchestration as string | undefined)?.includes("Multi") ? "Will create a Fund Manager → specialized workers (each on-chain-capped)" : ""}
           </span>
           <div style={{ display: "flex", gap: 10 }}>
             <button
@@ -1957,7 +2099,7 @@ function Step3PermissionModal({
       onClick={onClose}
       style={{
         position: "fixed", inset: 0, zIndex: 300,
-        background: "rgba(11,12,9,0.88)", backdropFilter: "blur(16px)",
+        background: "rgba(0,0,0,0.88)", backdropFilter: "blur(16px)",
         display: "flex", alignItems: "center", justifyContent: "center", padding: 24,
       }}
     >
@@ -2006,13 +2148,13 @@ function Step3PermissionModal({
               What granting does
             </div>
             {[
-              "Signs a non-custodial ERC-7715 permission in MetaMask — no key transfer",
+              "Signs a non-custodial ERC-7715 permission — no key transfer",
               "Sets a USDC budget cap your agent cannot exceed",
               "Revocable at any time in one click from the dashboard",
               "Your wallet stays in full control",
             ].map((line, i) => (
               <div key={i} style={{ display: "flex", gap: 8, marginBottom: i < 3 ? 5 : 0 }}>
-                <span style={{ color: ACCENT_TX, flexShrink: 0, marginTop: 1 }}>✓</span>
+                <span style={{ color: ACCENT_TX, flexShrink: 0, marginTop: 1 }}>·</span>
                 <span>{line}</span>
               </div>
             ))}
@@ -2040,7 +2182,7 @@ function Step3PermissionModal({
                 boxShadow: `0 4px 18px -6px ${ACCENT_GLOW}`,
               }}
             >
-              🔑 Grant ERC-7715 permission →
+              Grant ERC-7715 permission →
             </button>
           </div>
         </div>
@@ -2060,6 +2202,7 @@ function PermGrantModal({ onClose, onGranted }: { onClose: () => void; onGranted
   const [granting,  setGranting]  = useState(false);
   const [revoking,  setRevoking]  = useState(false);
   const [done,      setDone]      = useState(false);
+  const [grantErr,  setGrantErr]  = useState<string | null>(null);
   const [tick,      setTick]      = useState(0);
   // Withdrawal setup state
   const [setupStatus, setSetupStatus] = useState<import("@/lib/web3/setupWithdrawals").ApprovalStatus>("idle");
@@ -2088,6 +2231,7 @@ function PermGrantModal({ onClose, onGranted }: { onClose: () => void; onGranted
   const periodLabel   = `${days} ${periodUnit === "hours" ? (days === 1 ? "hour" : "hours") : (days === 1 ? "day" : "days")}`;
 
   const grant = async () => {
+    setGrantErr(null);
     setGranting(true);
     try {
       // Grant to the FUND MANAGER (true A2A): it redelegates a scoped, on-chain-
@@ -2095,11 +2239,32 @@ function PermGrantModal({ onClose, onGranted }: { onClose: () => void; onGranted
       // address can't be resolved.
       const n = await metamaskStore.requestFundManagerGrant(budget, effectiveDays);
       if (n === null) {
-        await metamaskStore.requestPermission(budget, effectiveDays, `CLOVE agent budget — ${budget} USDC / ${periodLabel}`);
+        await metamaskStore.requestPermission(budget, effectiveDays, `CapMatrix agent budget — ${budget} USDC / ${periodLabel}`);
       }
-      setDone(true);
-      setTimeout(onGranted, 800);
-    } catch {
+      // Check if the grant actually succeeded by re-reading the store
+      const freshPerm = metamaskStore.getState().permission;
+      const hasPerm = !!(
+        freshPerm?.permissionsContext &&
+        freshPerm.permissionsContext.length > 40 &&
+        !freshPerm.permissionsContext.includes("demo") &&
+        freshPerm.permissionsContext.startsWith("0x")
+      );
+      if (hasPerm) {
+        setDone(true);
+        setTimeout(onGranted, 800);
+      } else {
+        // Grant didn't succeed — probably wallet conflict (Nightly/Ackpack overriding MetaMask).
+        // Don't call onGranted so the modal stays open and user can see the issue.
+        setGranting(false);
+      }
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      console.error("[PermGrantModal] Grant failed:", msg);
+      if (msg.includes("wallet must has at least one account") || msg.includes("no accounts")) {
+        setGrantErr("MetaMask has no accounts configured. Open the MetaMask extension, create or import a wallet, then refresh and try again.");
+      } else {
+        setGrantErr(msg);
+      }
       setGranting(false);
     }
   };
@@ -2121,7 +2286,7 @@ function PermGrantModal({ onClose, onGranted }: { onClose: () => void; onGranted
   return (
     <div
       onClick={onClose}
-      style={{ position: "fixed", inset: 0, zIndex: 200, background: "rgba(11,12,9,0.82)", backdropFilter: "blur(12px)", display: "flex", alignItems: "center", justifyContent: "center", padding: 24 }}
+      style={{ position: "fixed", inset: 0, zIndex: 200, background: "rgba(0,0,0,0.82)", backdropFilter: "blur(12px)", display: "flex", alignItems: "center", justifyContent: "center", padding: 24 }}
     >
       <div
         onClick={e => e.stopPropagation()}
@@ -2168,7 +2333,7 @@ function PermGrantModal({ onClose, onGranted }: { onClose: () => void; onGranted
         <div style={{ fontSize: 13, color: TEXT2, lineHeight: 1.6 }}>
           {hasExisting
             ? "You can grant a new permission below to replace the current one, or use the buttons above to clear / revoke it."
-            : <>This creates an <strong style={{ color: TEXT }}>ERC-7715 periodic permission</strong> from your MetaMask wallet to CLOVE&apos;s <strong style={{ color: TEXT }}>Fund Manager</strong>, which splits it into scoped, on-chain-capped budgets for each worker agent. Your USDC only moves when an agent executes — revocable anytime.</>
+            : <>This creates an <strong style={{ color: TEXT }}>ERC-7715 periodic permission</strong> from your wallet to CapMatrix&apos;s <strong style={{ color: TEXT }}>Fund Manager</strong>, which splits it into scoped, on-chain-capped budgets for each worker agent. Your USDC only moves when an agent executes — revocable anytime.</>
           }
         </div>
 
@@ -2178,7 +2343,7 @@ function PermGrantModal({ onClose, onGranted }: { onClose: () => void; onGranted
             <input
               type="number" min="1" max="10000" value={budget}
               onChange={e => setBudget(e.target.value)}
-              style={{ background: "rgba(20,21,16,0.04)", border: `1px solid ${LINE_MID}`, color: TEXT, fontSize: 15, fontWeight: 600, padding: "9px 11px", borderRadius: 7, outline: "none" }}
+              style={{ background: "rgba(180,140,222,0.06)", border: `1px solid ${LINE_MID}`, color: TEXT, fontSize: 15, fontWeight: 600, padding: "9px 11px", borderRadius: 7, outline: "none" }}
             />
           </div>
           <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
@@ -2190,7 +2355,7 @@ function PermGrantModal({ onClose, onGranted }: { onClose: () => void; onGranted
               <input
                 type="number" min="1" max={periodUnit === "hours" ? 720 : 365} value={days}
                 onChange={e => setDays(Number(e.target.value))}
-                style={{ flex: 1, minWidth: 0, background: "rgba(20,21,16,0.04)", border: `1px solid ${LINE_MID}`, color: TEXT, fontSize: 15, fontWeight: 600, padding: "9px 11px", borderRadius: 7, outline: "none" }}
+                style={{ flex: 1, minWidth: 0, background: "rgba(180,140,222,0.06)", border: `1px solid ${LINE_MID}`, color: TEXT, fontSize: 15, fontWeight: 600, padding: "9px 11px", borderRadius: 7, outline: "none" }}
               />
               <div style={{ display: "inline-flex", border: `1px solid ${LINE_MID}`, borderRadius: 7, overflow: "hidden" }}>
                 {(["hours", "days"] as const).map(u => (
@@ -2221,6 +2386,18 @@ function PermGrantModal({ onClose, onGranted }: { onClose: () => void; onGranted
           {" "}Gas paid in USDC via 1Shot — you pay zero ETH.
         </div>
 
+        {grantErr && (
+          <div style={{
+            padding: "10px 14px", borderRadius: 8,
+            background: "rgba(255,69,69,0.1)",
+            border: "1px solid rgba(255,69,69,0.3)",
+            color: "#FF8A66",
+            fontSize: 12.5, lineHeight: 1.5,
+          }}>
+            {grantErr}
+          </div>
+        )}
+
         <button
           onClick={grant}
           disabled={granting || done}
@@ -2234,14 +2411,14 @@ function PermGrantModal({ onClose, onGranted }: { onClose: () => void; onGranted
             opacity: granting ? 0.7 : 1, transition: "all .2s",
           }}
         >
-          {done ? "✅ Permission granted!" : granting ? "Waiting for MetaMask…" : hasExisting ? "Re-grant via MetaMask →" : "Grant via MetaMask →"}
+          {done ? "✅ Permission granted!" : granting ? "Waiting for wallet…" : hasExisting ? "Re-grant permission →" : "Grant permission →"}
         </button>
 
         {/* ── Set up withdrawals ── */}
         <div style={{ borderTop: `1px solid ${LINE}`, paddingTop: 16 }}>
           <div style={{ fontSize: 11.5, color: MID, marginBottom: 10, lineHeight: 1.6 }}>
             <strong style={{ color: TEXT2 }}>Enable autonomous withdrawals</strong>
-            {" "}— approve the CLOVE contract once to let agents automatically exit positions.
+            {" "}— approve the CapMatrix contract once to let agents automatically exit positions.
             Covers all 5 protocols: Aave, Morpho, Uniswap, Aerodrome, Lido.
           </div>
 
@@ -2250,7 +2427,7 @@ function PermGrantModal({ onClose, onGranted }: { onClose: () => void; onGranted
               onClick={async () => {
                 const { setupWithdrawals } = await import("@/lib/web3/setupWithdrawals");
                 const mm = metamaskStore.getState();
-                if (!mm.userAddress) { alert("Connect MetaMask first"); return; }
+                if (!mm.userAddress) { alert("Connect wallet first"); return; }
                 try {
                   await setupWithdrawals(mm.userAddress as `0x${string}`, (s) => {
                     setSetupStatus(s);
@@ -2271,7 +2448,7 @@ function PermGrantModal({ onClose, onGranted }: { onClose: () => void; onGranted
               }}
             >
               {setupStatus === "pending"
-                ? "⏳ Waiting for MetaMask… (1 transaction)"
+                ? "⏳ Waiting for wallet… (1 transaction)"
                 : typeof setupStatus === "object" && "error" in setupStatus
                   ? `⚠ ${setupStatus.error.slice(0, 50)}`
                   : "🔓 Set up withdrawals — 1 click, 5 protocols"}
@@ -2283,7 +2460,7 @@ function PermGrantModal({ onClose, onGranted }: { onClose: () => void; onGranted
           )}
 
           <div style={{ marginTop: 8, fontSize: 10.5, color: MID, lineHeight: 1.5 }}>
-            Each approval is a standard MetaMask transaction (no ETH cost on Base L2 — gas is ~$0.001 total).
+            Each approval is a standard wallet transaction (no ETH cost on Base L2 — gas is ~$0.001 total).
           </div>
         </div>
       </div>
@@ -2297,17 +2474,14 @@ function PermGrantModal({ onClose, onGranted }: { onClose: () => void; onGranted
 
 function Brand() {
   return (
-    <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "0 6px" }}>
-      <span style={{ display: "inline-flex", width: 28, height: 28, alignItems: "center", justifyContent: "center", borderRadius: 7, background: INK_1 }}>
-        <svg width="16" height="16" viewBox="0 0 24 24">
-          <circle cx="8"  cy="8"  r="3.5" fill={ACCENT} />
-          <circle cx="16" cy="8"  r="3.5" fill={ACCENT} opacity="0.85" />
-          <circle cx="8"  cy="16" r="3.5" fill={ACCENT} opacity="0.85" />
-          <circle cx="16" cy="16" r="3.5" fill={ACCENT} opacity="0.7" />
-        </svg>
-      </span>
-      <span style={{ fontSize: 17, fontWeight: 600, color: TEXT, letterSpacing: "-0.015em" }}>clove</span>
-      <span style={{ marginLeft: "auto", fontSize: 9, color: MID, letterSpacing: "0.06em", textTransform: "uppercase", fontWeight: 500 }}>Beta</span>
+    <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "0 4px" }}>
+      <img
+        src="/images/logo.png"
+        alt="CapMatrix"
+        style={{ width: 26, height: 26, borderRadius: 6, objectFit: "contain" }}
+      />
+      <span style={{ fontSize: 18, fontWeight: 600, color: TEXT, letterSpacing: "-0.02em" }}>CapMatrix</span>
+      <span style={{ marginLeft: "auto", fontSize: 9.5, color: MID, letterSpacing: "0.08em", textTransform: "uppercase", fontWeight: 600, background: INK_1, padding: "2px 6px", borderRadius: 4 }}>Beta</span>
     </div>
   );
 }
@@ -2321,7 +2495,7 @@ function NavItem({ icon: Icon, label, active, count, onClick }: { icon: React.Co
       style={{
         display: "flex", alignItems: "center", gap: 11,
         padding: "8px 11px", borderRadius: 7,
-        background: active ? "rgba(20,21,16,0.06)" : "transparent",
+        background: active ? "rgba(164,110,219,0.06)" : "transparent",
         color: active ? TEXT : TEXT2,
         fontSize: 13, letterSpacing: "-0.005em",
         textDecoration: "none", textAlign: "left",
@@ -2375,16 +2549,18 @@ function ConnectChip() {
           display: "inline-flex", alignItems: "center", gap: 7,
           padding: "6px 12px", borderRadius: 7,
           background: addr ? "transparent" : ACCENT,
-          border: addr ? `1px solid ${LINE_MID}` : "none",
-          color: addr ? TEXT : INK, fontSize: 11.5, letterSpacing: "0.02em",
+          border: addr ? "none" : "none",
+          color: addr ? TEXT : INK, fontSize: 12, letterSpacing: "-0.005em",
           fontVariantNumeric: "tabular-nums", fontWeight: 600,
           cursor: "pointer",
+          transition: "background .2s",
         }}
+        onMouseEnter={(e) => { if (addr) e.currentTarget.style.background = "rgba(164,110,219,0.08)"; }}
+        onMouseLeave={(e) => { if (addr) e.currentTarget.style.background = "transparent"; }}
       >
-        <BaseLogo size={14} />
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-1 17.93c-3.95-.49-7-3.85-7-7.93 0-.62.08-1.21.21-1.79L9 15v1c0 1.1.9 2 2 2v1.93zm6.9-2.54c-.26-.81-1-1.39-1.9-1.39h-1v-3c0-.55-.45-1-1-1H8v-2h2c.55 0 1-.45 1-1V7h2c1.1 0 2-.9 2-2v-.41c2.93 1.19 5 4.06 5 7.41 0 2.08-.8 3.97-2.1 5.39z"/></svg>
         {addr ? `${addr.slice(0, 6)}…${addr.slice(-4)}` : "Connect"}
-        {!addr && <span style={{ fontSize: 10, fontWeight: 500, opacity: 0.7 }}>· Base</span>}
-        {addr && <ChevronDown size={11} style={{ opacity: 0.6 }} />}
+        {addr && <ChevronDown size={12} style={{ opacity: 0.6 }} />}
       </button>
 
       {addr && open && (
@@ -2393,24 +2569,26 @@ function ConnectChip() {
           <div
             style={{
               position: "absolute", top: "100%", right: 0, marginTop: 6, zIndex: 41,
-              minWidth: 180, background: INK_1, border: `1px solid ${LINE_MID}`, borderRadius: 9,
-              padding: 6, boxShadow: "0 12px 30px -10px rgba(0,0,0,0.6)",
+              minWidth: 180, background: INK_1, border: `1px solid ${LINE}`, borderRadius: 10,
+              padding: 6, boxShadow: "0 16px 36px -12px rgba(0,0,0,0.6)",
             }}
           >
-            <div style={{ padding: "5px 8px", fontSize: 11, color: MID, fontVariantNumeric: "tabular-nums" }}>
+            <div style={{ padding: "8px 10px", fontSize: 11.5, color: MID, fontVariantNumeric: "tabular-nums", letterSpacing: "-0.005em" }}>
               {addr.slice(0, 10)}…{addr.slice(-8)}
             </div>
             <button
               onClick={handleDisconnect}
               style={{
-                display: "flex", width: "100%", alignItems: "center", gap: 7,
-                padding: "7px 8px", borderRadius: 7, border: "none", cursor: "pointer",
-                background: "transparent", color: "#FF8A66", fontSize: 12, textAlign: "left",
+                display: "flex", width: "100%", alignItems: "center", gap: 8,
+                padding: "8px 10px", borderRadius: 7, border: "none", cursor: "pointer",
+                background: "transparent", color: "#FF8A66", fontSize: 12.5, textAlign: "left",
+                fontWeight: 500,
               }}
               onMouseEnter={(e) => { e.currentTarget.style.background = "rgba(255,138,102,0.08)"; }}
               onMouseLeave={(e) => { e.currentTarget.style.background = "transparent"; }}
             >
-              Disconnect wallet
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>
+              Disconnect
             </button>
           </div>
         </>
@@ -2495,16 +2673,17 @@ function TelegramLinkChip() {
       title={activeLinked ? "Unlink Telegram" : "Connect Telegram"}
       style={{
         display: "inline-flex", alignItems: "center", gap: 7,
-        padding: "5px 9px", borderRadius: 6,
-        background: activeLinked ? "rgba(164,110,219,0.08)" : "transparent",
-        border: `1px solid ${activeLinked ? "rgba(164,110,219,0.18)" : "transparent"}`,
+        padding: "6px 10px", borderRadius: 7, border: "none",
+        background: activeLinked ? "rgba(164,110,219,0.06)" : "transparent",
         color: activeLinked ? ACCENT_TX : MID_2,
-        fontSize: 11.5, letterSpacing: "0.02em",
-        cursor: wallet && !busy ? "pointer" : "not-allowed",
-        opacity: wallet ? 1 : 0.55,
+        fontSize: 12, cursor: wallet && !busy ? "pointer" : "not-allowed",
+        opacity: wallet ? 1 : 0.5, fontWeight: activeLinked ? 500 : 400,
+        transition: "all .2s",
       }}
+      onMouseEnter={(e) => { if (wallet && !busy) e.currentTarget.style.background = "rgba(164,110,219,0.1)"; }}
+      onMouseLeave={(e) => { e.currentTarget.style.background = activeLinked ? "rgba(164,110,219,0.06)" : "transparent"; }}
     >
-      <span style={{ width: 5, height: 5, borderRadius: "50%", background: activeLinked ? ACCENT : MID }} />
+      <svg width="13" height="13" viewBox="0 0 24 24" fill="currentColor"><path d="M11.944 0A12 12 0 0 0 0 12a12 12 0 0 0 12 12 12 12 0 0 0 12-12A12 12 0 0 0 12 0a12 12 0 0 0-.056 0zm4.962 7.224c.1-.002.321.023.465.14a.506.506 0 0 1 .171.325c.016.093.036.306.02.472-.18 1.898-.962 6.502-1.36 8.627-.168.9-.499 1.201-.82 1.23-.696.065-1.225-.46-1.9-.902-1.056-.693-1.653-1.124-2.678-1.8-1.185-.78-.417-1.21.258-1.91.177-.184 3.247-2.977 3.307-3.23.007-.032.014-.15-.056-.212s-.174-.041-.249-.024c-.106.024-1.793 1.14-5.061 3.345-.48.33-.913.49-1.302.48-.428-.008-1.252-.241-1.865-.44-.752-.245-1.349-.374-1.297-.789.027-.216.325-.437.893-.663 3.498-1.524 5.83-2.529 6.998-3.014 3.332-1.386 4.025-1.627 4.476-1.635z"/></svg>
       {busy ? "..." : displayLabel}
     </button>
   );
@@ -2583,7 +2762,7 @@ function CreateAgentModal({ onClose, onCreated }: { onClose: () => void; onCreat
       onClick={onClose}
       style={{
         position: "fixed", inset: 0, zIndex: 100,
-        background: "rgba(11,12,9,0.7)", backdropFilter: "blur(8px)",
+        background: "rgba(0,0,0,0.7)", backdropFilter: "blur(8px)",
         display: "flex", alignItems: "center", justifyContent: "center", padding: 24,
       }}
     >
@@ -2631,7 +2810,7 @@ function CreateAgentModal({ onClose, onCreated }: { onClose: () => void; onCreat
             onClick={() => setGrantOpen(x => !x)}
             style={{
               width: "100%", display: "flex", alignItems: "center", justifyContent: "space-between",
-              padding: "10px 14px", background: "rgba(20,21,16,0.03)", border: "none", cursor: "pointer",
+              padding: "10px 14px", background: "rgba(180,140,222,0.04)", border: "none", cursor: "pointer",
               color: TEXT2, fontSize: 12.5, fontFamily: "var(--sans)", textAlign: "left",
             }}
           >
@@ -2645,9 +2824,9 @@ function CreateAgentModal({ onClose, onCreated }: { onClose: () => void; onCreat
           {grantOpen && (
             <div style={{ padding: "14px 16px", borderTop: `1px solid ${LINE}`, display: "flex", flexDirection: "column", gap: 10 }}>
               <div style={{ fontSize: 12.5, color: TEXT2, lineHeight: 1.5 }}>
-                Grant MetaMask permission: <strong style={{ color: TEXT }}>{budget} USDC / 30 days</strong>
+                Grant permission: <strong style={{ color: TEXT }}>{budget} USDC / 30 days</strong>
                 <br />
-                This lets CLOVE spend on your behalf, on-chain, with revocation rights.
+                This lets CapMatrix spend on your behalf, on-chain, with revocation rights.
               </div>
 
               <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
@@ -2662,12 +2841,12 @@ function CreateAgentModal({ onClose, onCreated }: { onClose: () => void; onCreat
                     opacity: granting ? 0.6 : 1,
                   }}
                 >
-                  {granting ? "Requesting…" : grantedPerm ? "✓ Permission granted" : "Grant via MetaMask"}
+                  {granting ? "Requesting…" : grantedPerm ? "Permission granted" : "Grant permission"}
                 </button>
                 <span style={{ fontSize: 10.5, color: grantedPerm ? ACCENT_TX : MID }}>
                   {grantedPerm
                     ? `● Active · expires ${new Date(grantedPerm.expiresAt * 1000).toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" })}`
-                    : "● Not granted"}
+                    : "Not granted"}
                 </span>
               </div>
             </div>
@@ -2774,14 +2953,14 @@ function DelegateModal({
   };
 
   const delegationBadge = parentIsReal || (localPerm && localPerm.permissionsContext)
-    ? { label: "● real on-chain", color: ACCENT_TX }
-    : { label: "● needs permission — grant first", color: MID };
+    ? { label: "real on-chain", color: ACCENT_TX }
+    : { label: "needs permission — grant first", color: MID };
 
   if (candidates.length === 0) {
     return (
       <div
         onClick={onClose}
-        style={{ position: "fixed", inset: 0, zIndex: 100, background: "rgba(11,12,9,0.7)", backdropFilter: "blur(8px)", display: "flex", alignItems: "center", justifyContent: "center", padding: 24 }}
+        style={{ position: "fixed", inset: 0, zIndex: 100, background: "rgba(0,0,0,0.7)", backdropFilter: "blur(8px)", display: "flex", alignItems: "center", justifyContent: "center", padding: 24 }}
       >
         <div
           onClick={(e) => e.stopPropagation()}
@@ -2802,7 +2981,7 @@ function DelegateModal({
   return (
     <div
       onClick={onClose}
-      style={{ position: "fixed", inset: 0, zIndex: 100, background: "rgba(11,12,9,0.7)", backdropFilter: "blur(8px)", display: "flex", alignItems: "center", justifyContent: "center", padding: 24 }}
+      style={{ position: "fixed", inset: 0, zIndex: 100, background: "rgba(0,0,0,0.7)", backdropFilter: "blur(8px)", display: "flex", alignItems: "center", justifyContent: "center", padding: 24 }}
     >
       <div
         onClick={(e) => e.stopPropagation()}
@@ -2847,7 +3026,7 @@ function DelegateModal({
                 opacity: granting ? 0.6 : 1,
               }}
             >
-              {granting ? "Requesting…" : localPerm ? "✓ Permission granted" : "Grant permission"}
+              {granting ? "Requesting…" : localPerm ? "Permission granted" : "Grant permission"}
             </button>
           </div>
         )}
@@ -2913,7 +3092,7 @@ function Field({ label, children }: { label: string; children: React.ReactNode }
 
 function inputStyle(): React.CSSProperties {
   return {
-    background: "rgba(20,21,16,0.04)",
+    background: "rgba(180,140,222,0.06)",
     border: `1px solid ${LINE_MID}`,
     color: TEXT,
     fontSize: 13,

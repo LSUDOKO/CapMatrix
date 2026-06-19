@@ -108,7 +108,7 @@ export async function POST(request: NextRequest) {
   // ── Rich report mode ────────────────────────────────────────────────────────
   if (body.richReport) {
     const { text, voiceUrl, imageUrl, spending } = body.richReport;
-    const caption = `🤖 *CLOVE Agent*\n\n${text}`;
+    const caption = `🤖 *CapMatrix Agent*\n\n${text}`;
     const results: Record<string, boolean> = {};
 
     try {
@@ -143,7 +143,7 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "Missing message or richReport" }, { status: 400 });
   }
 
-  const text = `🤖 *CLOVE Agent*\n\n${body.message}\n\n_${new Date().toLocaleString()}_`;
+  const text = `🤖 *CapMatrix Agent*\n\n${body.message}\n\n_${new Date().toLocaleString()}_`;
   const res  = await sendMessage(botToken, chatId, text);
 
   if (!res.ok) {

@@ -95,7 +95,7 @@ function FlaskRequiredModal({ installed, version }: { installed: boolean; versio
           }}>⚠️</div>
           <div>
             <div style={{ fontWeight: 600, fontSize: 16, letterSpacing: "-0.01em" }}>
-              MetaMask not detected
+              Wallet not detected
             </div>
             <div style={{ fontSize: 11, color: "#6F6E63", marginTop: 3, letterSpacing: "0.04em", textTransform: "uppercase" }}>
               ERC-7715 Advanced Permissions
@@ -105,9 +105,9 @@ function FlaskRequiredModal({ installed, version }: { installed: boolean; versio
 
         {/* Explanation */}
         <p style={{ fontSize: 13.5, lineHeight: 1.6, color: "#B5B2A5", margin: "0 0 20px" }}>
-          CLOVE uses <strong style={{ color: "#F0EDF5" }}>ERC-7715 delegated permissions</strong> so agents
+          CapMatrix uses <strong style={{ color: "#F0EDF5" }}>ERC-7715 delegated permissions</strong> so agents
           can autonomously manage your DeFi portfolio without holding your private keys.
-          Install MetaMask (v12+) to grant a permission and get started.
+          Connect a wallet with ERC-7715 support to grant a permission and get started.
         </p>
 
         {installed && (
@@ -115,14 +115,13 @@ function FlaskRequiredModal({ installed, version }: { installed: boolean; versio
             background: "rgba(242,184,92,0.07)", border: "1px solid rgba(242,184,92,0.2)",
             borderRadius: 8, padding: "10px 14px", marginBottom: 20, fontSize: 12.5, color: "#F2B85C",
           }}>
-            MetaMask detected ({version.slice(0, 40)}) but Advanced Permissions are not available in this build.
+            Wallet detected ({version.slice(0, 40)}) but ERC-7715 Advanced Permissions are not available in this build.
           </div>
         )}
 
         {/* What Flask is */}
         <div style={{ fontSize: 12, color: "#6F6E63", marginBottom: 24, lineHeight: 1.6 }}>
-          Flask is MetaMask&apos;s developer build. It&apos;s safe to install alongside regular MetaMask
-          as a separate browser profile. Your existing accounts and seed phrase work in both.
+          ERC-7715 enables agents to execute within a strict budget cap — your keys stay yours.
         </div>
 
         {/* CTA */}
@@ -138,7 +137,7 @@ function FlaskRequiredModal({ installed, version }: { installed: boolean; versio
               transition: "transform .2s",
             }}
           >
-            Install MetaMask →
+            Install compatible wallet →
           </a>
           <button
             onClick={() => setDismissed(true)}
@@ -159,7 +158,7 @@ function FlaskRequiredModal({ installed, version }: { installed: boolean; versio
         }}>
           ERC-7715 is supported on <span style={{ color: "#B5B2A5" }}>Base mainnet (8453)</span> and{" "}
           <span style={{ color: "#B5B2A5" }}>Polygon (137)</span>.
-          The MetaMask DelegationManager is deployed at{" "}
+          The DelegationManager is deployed at{" "}
           <span style={{ fontFamily: "monospace", color: "#8F8E82" }}>0xdb9B…7dB3</span> on both chains.
         </div>
       </div>
