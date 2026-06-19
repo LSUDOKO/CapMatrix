@@ -6,10 +6,6 @@
 
 **Grant one capped USDC budget. A Fund Manager AI splits it across specialized agents — each with its own key, its own smart account, and an on-chain budget it cannot exceed. Agents collaborate through Band AI chat rooms: Scout gathers intelligence, Risk Monitor evaluates and approves, and Executor deploys capital on-chain. They research, decide, and execute on Base while you sleep. Fully non-custodial. Revocable in one click.**
 
-[![Built on Base](https://img.shields.io/badge/Built%20on-Base%20mainnet-0052FF?style=flat-square)](https://base.org)
-[![ERC-7715](https://img.shields.io/badge/Permissions-ERC--7715-C8FF3D?style=flat-square)](https://eips.ethereum.org/EIPS/eip-7715)
-[![ERC-7710](https://img.shields.io/badge/Delegation-ERC--7710-C8FF3D?style=flat-square)](https://eips.ethereum.org/EIPS/eip-7710)
-[![1Shot Relayer](https://img.shields.io/badge/Gas-1Shot%20Relayer%20(USDC)-9b87f5?style=flat-square)](https://1shotapi.com)
 [![Featherless AI](https://img.shields.io/badge/AI-Featherless%20AI-FF5A1F?style=flat-square)](https://featherless.ai)
 [![Band AI](https://img.shields.io/badge/Collaboration-Band%20AI-6366f1?style=flat-square)](https://band.ai)
 
